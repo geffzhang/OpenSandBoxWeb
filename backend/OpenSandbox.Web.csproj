@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <PackageReference Include="Alibaba.OpenSandbox" Version="1.1.1" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.10" />
   </ItemGroup>
 
   <!-- 前端构建产物（frontend/dist）纳入发布目录，wwwroot 下托管；

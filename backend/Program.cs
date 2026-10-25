@@ -1,4 +1,5 @@
 using System.Text.Json;
+using OpenSandbox.Web.Host.Security;
 using OpenSandbox.Web.Host.Web;
 using OpenSandbox.Web.Infrastructure.DependencyInjection;
 
@@ -10,14 +11,19 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.PropertyNameCaseInsensitive = true;
 });
 builder.Services.AddOpenSandbox(builder.Configuration);
+builder.Services.AddConsoleAuth(builder.Configuration);
 
 var app = builder.Build();
 
 app.UseMiddleware<SandboxExceptionMiddleware>();
 
+app.UseAuthentication();
+app.UseAuthorization();
+
 app.MapHealthEndpoints();
 app.MapSandboxEndpoints();
 app.MapMetricsEndpoints();
+app.MapConsoleEndpoints();
 app.MapSpaFallback();
 
 app.Run();
