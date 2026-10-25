@@ -1,5 +1,6 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom'
 import AppLayout from '@/components/layout/AppLayout'
+import Dashboard from '@/pages/Dashboard'
 import NotFound from '@/pages/NotFound'
 
 // 占位组件：Task 10-15 逐个替换
@@ -13,7 +14,7 @@ export const router = createBrowserRouter([
     element: <AppLayout />,
     children: [
       { index: true, element: <Navigate to="/dashboard" replace /> },
-      { path: 'dashboard', element: <Placeholder title="仪表盘" /> },
+      { path: 'dashboard', element: <Dashboard /> },
       { path: 'sandboxes', element: <Placeholder title="沙箱列表" /> },
       { path: 'sandboxes/:id', element: <Placeholder title="沙箱详情" /> },
       { path: 'create', element: <Placeholder title="创建沙箱" /> },
