@@ -18,6 +18,7 @@ var app = builder.Build();
 app.UseMiddleware<SandboxExceptionMiddleware>();
 
 app.UseAuthentication();
+app.UseConsoleRbac();
 app.UseAuthorization();
 
 app.MapHealthEndpoints();
