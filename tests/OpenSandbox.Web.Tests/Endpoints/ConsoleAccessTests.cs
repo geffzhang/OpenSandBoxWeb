@@ -80,6 +80,34 @@ public sealed class ConsoleAccessTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task AnonymousUnknownApi_Returns401WithBearerChallenge()
+    {
+        var response = await _factory.CreateAnonymousClient().GetAsync("/api/v1/no-such-route");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Contains("Bearer", response.Headers.WwwAuthenticate.ToString());
+        var body = await response.Content.ReadFromJsonAsync<ErrorResponse>();
+        Assert.Equal("unauthorized", body!.Code);
+    }
+
+    [Fact]
+    public async Task AdminSandboxLookalikePath_Returns403()
+    {
+        var response = await _factory.CreateClient().GetAsync("/api/v1/sandboxesevil");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task AdminSandboxList_AdminImpliesViewer()
+    {
+        // admin 隐含同一 facet 的 viewer：不能被 RBAC 以 401/403 拒绝（FakeSandboxGateway 列表返回 200）。
+        var response = await _factory.CreateClient().GetAsync("/api/v1/sandboxes");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
     public async Task AnonymousHealth_Returns200()
     {
         var response = await _factory.CreateAnonymousClient().GetAsync("/api/v1/health");
