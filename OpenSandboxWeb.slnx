@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/backend/">
+    <Project Path="backend/OpenSandbox.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/OpenSandbox.Web.Tests/OpenSandbox.Web.Tests.csproj" />
+  </Folder>
+</Solution>
