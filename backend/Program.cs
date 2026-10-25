@@ -17,6 +17,9 @@ var app = builder.Build();
 
 app.UseMiddleware<SandboxExceptionMiddleware>();
 
+// 静态资源与 SPA fallback 必须匿名；index.html 在这里注入登录配置。
+app.MapSpaFallback();
+
 app.UseAuthentication();
 app.UseConsoleRbac();
 app.UseAuthorization();
@@ -25,7 +28,6 @@ app.MapHealthEndpoints();
 app.MapSandboxEndpoints();
 app.MapMetricsEndpoints();
 app.MapConsoleEndpoints();
-app.MapSpaFallback();
 
 app.Run();
 
