@@ -1,3 +1,4 @@
+using System.Globalization;
 using OpenSandbox.Core;
 using OpenSandbox.Web.Contracts;
 using Models = OpenSandbox.Models;
@@ -33,10 +34,10 @@ public static class SandboxMapper
             {
                 DefaultAction = string.IsNullOrEmpty(request.NetworkPolicy.DefaultAction)
                     ? null
-                    : Enum.Parse<Models.NetworkRuleAction>(request.NetworkPolicy.DefaultAction, ignoreCase: true),
+                    : ParseRuleAction(request.NetworkPolicy.DefaultAction, "networkPolicy.defaultAction"),
                 Egress = request.NetworkPolicy.Egress?.Select(rule => new Models.NetworkRule
                 {
-                    Action = Enum.Parse<Models.NetworkRuleAction>(rule.Action, ignoreCase: true),
+                    Action = ParseRuleAction(rule.Action, "networkPolicy.egress.action"),
                     Target = rule.Target,
                 }).ToList(),
             },
@@ -82,4 +83,24 @@ public static class SandboxMapper
         metrics.MemoryTotalMiB,
         metrics.MemoryUsedMiB,
         metrics.Timestamp);
+
+    public static int ExpiresAtToSeconds(string? expiresAt, DateTimeOffset utcNow)
+    {
+        if (string.IsNullOrWhiteSpace(expiresAt))
+            throw new InvalidArgumentException("expiresAt is required", null);
+        if (!DateTimeOffset.TryParse(expiresAt, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed))
+            throw new InvalidArgumentException("expiresAt must be an ISO 8601 timestamp", null);
+
+        var seconds = Math.Ceiling((parsed - utcNow).TotalSeconds);
+        if (seconds <= 0)
+            throw new InvalidArgumentException("expiresAt must be in the future", null);
+        return (int)Math.Min(seconds, int.MaxValue);
+    }
+
+    private static Models.NetworkRuleAction ParseRuleAction(string value, string field)
+    {
+        if (!Enum.TryParse<Models.NetworkRuleAction>(value, ignoreCase: true, out var action) || !Enum.IsDefined(action))
+            throw new InvalidArgumentException($"{field} is invalid", null);
+        return action;
+    }
 }
