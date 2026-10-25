@@ -5,12 +5,8 @@ import SandboxDetail from '@/pages/SandboxDetail'
 import SandboxList from '@/pages/SandboxList'
 import CreateSandbox from '@/pages/CreateSandbox'
 import BatchCreate from '@/pages/BatchCreate'
+import Settings from '@/pages/Settings'
 import NotFound from '@/pages/NotFound'
-
-// 占位组件：Task 10-15 逐个替换
-const Placeholder = ({ title }: { title: string }) => (
-  <div style={{ padding: 24 }}>{title}（待实现）</div>
-)
 
 export const router = createBrowserRouter([
   {
@@ -23,7 +19,7 @@ export const router = createBrowserRouter([
       { path: 'sandboxes/:id', element: <SandboxDetail /> },
       { path: 'create', element: <CreateSandbox /> },
       { path: 'batch-create', element: <BatchCreate /> },
-      { path: 'settings', element: <Placeholder title="设置" /> },
+      { path: 'settings', element: <Settings /> },
       { path: '*', element: <NotFound /> },
     ],
   },
