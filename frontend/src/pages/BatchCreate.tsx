@@ -138,7 +138,8 @@ export default function BatchCreate() {
         .map((entry) => requestToItem.get(entry.request)?.id)
         .filter((id): id is string => Boolean(id)),
     )
-    setItems((prev) => prev.filter((item) => failedIds.has(item.id)))
+    const submittedIds = new Set(pending.map((entry) => entry.item.id))
+    setItems((prev) => prev.filter((item) => !submittedIds.has(item.id) || failedIds.has(item.id)))
     setProgress(null)
     if (outcome.failed.length === 0) {
       message.success(`批量创建完成：成功 ${outcome.successful.length}，失败 0`)
