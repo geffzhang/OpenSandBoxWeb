@@ -1,6 +1,7 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom'
 import AppLayout from '@/components/layout/AppLayout'
 import Dashboard from '@/pages/Dashboard'
+import SandboxDetail from '@/pages/SandboxDetail'
 import SandboxList from '@/pages/SandboxList'
 import NotFound from '@/pages/NotFound'
 
@@ -17,7 +18,7 @@ export const router = createBrowserRouter([
       { index: true, element: <Navigate to="/dashboard" replace /> },
       { path: 'dashboard', element: <Dashboard /> },
       { path: 'sandboxes', element: <SandboxList /> },
-      { path: 'sandboxes/:id', element: <Placeholder title="沙箱详情" /> },
+      { path: 'sandboxes/:id', element: <SandboxDetail /> },
       { path: 'create', element: <Placeholder title="创建沙箱" /> },
       { path: 'batch-create', element: <Placeholder title="批量创建" /> },
       { path: 'settings', element: <Placeholder title="设置" /> },
