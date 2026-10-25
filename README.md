@@ -100,7 +100,7 @@ docker compose up -d
 
 - `opensandbox-web` reaches `opensandbox-server` over the compose network; the defaults require no `.env` changes. Set `OPENSANDBOX_DOMAIN` / `OPENSANDBOX_API_KEY` only when connecting to an external OpenSandbox platform.
 - `opensandbox-server` mounts the host's `/var/run/docker.sock` to create sandbox containers (inherent to the upstream design), so it can see and clean up expired sandbox containers labelled OpenSandbox on the host; port 8090 is bound to 127.0.0.1 only.
-- Pre-pull the runtime images `opensandbox/execd:v1.1.0` and `opensandbox/egress:v1.1.7` before creating the first sandbox: a cold pull may exceed the backend's default 30s request timeout (adjustable via `OpenSandbox__RequestTimeoutSeconds`).
+- Pre-pull the runtime images `opensandbox/execd:v1.1.0` and `opensandbox/egress:v1.1.7` before creating the first sandbox: a cold pull may exceed the backend's default 30s request timeout (raise OPENSANDBOX_REQUEST_TIMEOUT_SECONDS in .env).
 - After editing the inline server configuration in `docker-compose.yml`, run `docker compose up -d --force-recreate opensandbox-server` for the change to take effect.
 - Port 5080 is published on all interfaces by default and the admin UI has no authentication, so use it only on trusted networks; to allow local-machine access only, change the ports mapping to `127.0.0.1:5080:5080`, or put it behind a reverse proxy / authentication.
 
@@ -221,7 +221,7 @@ docker compose up -d
 
 - `opensandbox-web` 通过 compose 网络访问 `opensandbox-server`，默认无需修改 `.env`；仅当连接外部 OpenSandbox 平台时才设置 `OPENSANDBOX_DOMAIN` / `OPENSANDBOX_API_KEY`。
 - `opensandbox-server` 挂载宿主机 `/var/run/docker.sock` 以创建沙箱容器（上游设计的固有行为），因此它能看到并清理宿主机上带 OpenSandbox 标签的过期沙箱容器；8090 仅绑定 127.0.0.1。
-- 首次创建沙箱前建议预拉运行时镜像 `opensandbox/execd:v1.1.0` 与 `opensandbox/egress:v1.1.7`：冷拉可能超过后端默认 30s 请求超时（可调 `OpenSandbox__RequestTimeoutSeconds`）。
+- 首次创建沙箱前建议预拉运行时镜像 `opensandbox/execd:v1.1.0` 与 `opensandbox/egress:v1.1.7`：冷拉可能超过后端默认 30s 请求超时（可在 .env 中调大 OPENSANDBOX_REQUEST_TIMEOUT_SECONDS）。
 - 修改 `docker-compose.yml` 内联 server 配置后，需 `docker compose up -d --force-recreate opensandbox-server` 才会生效。
 - 5080 默认发布到所有网卡且管理界面无鉴权，仅应在受信网络使用；如需仅本机访问，将 ports 改为 `127.0.0.1:5080:5080`，或置于反向代理/鉴权之后。
 

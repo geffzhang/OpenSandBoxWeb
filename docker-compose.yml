@@ -65,6 +65,7 @@ services:
       ASPNETCORE_ENVIRONMENT: Production
       OpenSandbox__Domain: ${OPENSANDBOX_DOMAIN:-http://opensandbox-server:8090}
       OpenSandbox__ApiKey: ${OPENSANDBOX_API_KEY:-}
+      OpenSandbox__RequestTimeoutSeconds: ${OPENSANDBOX_REQUEST_TIMEOUT_SECONDS:-30}
     depends_on:
       - opensandbox-server
     networks:
