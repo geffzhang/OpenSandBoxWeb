@@ -48,6 +48,59 @@ public sealed class ConsoleAuthTests
         Assert.Equal("preferred_username", jwt.TokenValidationParameters.NameClaimType);
     }
 
+    [Fact]
+    public void AddConsoleAuth_UsesMetadataAddressForDiscovery()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddConsoleAuth(Config(
+            ("Auth:Authority", "http://localhost:8081/realms/opensandbox/"),
+            ("Auth:ClientId", "opensandbox-web"),
+            ("Auth:RequireHttpsMetadata", "false"),
+            ("Auth:MetadataAddress", " http://keycloak:8080/realms/opensandbox/.well-known/openid-configuration ")));
+
+        using var provider = services.BuildServiceProvider();
+        var jwt = provider.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>()
+            .Get(JwtBearerDefaults.AuthenticationScheme);
+        var effective = provider.GetRequiredService<IOptions<ConsoleAuthOptions>>().Value;
+
+        Assert.Equal(
+            "http://keycloak:8080/realms/opensandbox/.well-known/openid-configuration",
+            jwt.MetadataAddress);
+        Assert.Equal("http://localhost:8081/realms/opensandbox", jwt.Authority);
+        Assert.Equal("http://localhost:8081/realms/opensandbox", jwt.TokenValidationParameters.ValidIssuer);
+        Assert.Equal(jwt.MetadataAddress, effective.MetadataAddress);
+    }
+
+    [Fact]
+    public void AddConsoleAuth_WithoutMetadataAddress_LeavesItUnset()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddConsoleAuth(Config(
+            ("Auth:Authority", "https://keycloak.example/realms/dev/"),
+            ("Auth:ClientId", "opensandbox-web"),
+            ("Auth:RequireHttpsMetadata", "false")));
+
+        using var provider = services.BuildServiceProvider();
+
+        // JwtBearer's post-configure derives MetadataAddress from Authority in .NET 10;
+        // apply only the registered configure actions to observe our effective value.
+        var options = new JwtBearerOptions();
+        foreach (var configure in provider.GetServices<IConfigureOptions<JwtBearerOptions>>())
+        {
+            if (configure is IConfigureNamedOptions<JwtBearerOptions> named)
+                named.Configure(JwtBearerDefaults.AuthenticationScheme, options);
+            else
+                configure.Configure(options);
+        }
+
+        Assert.Null(options.MetadataAddress);
+        Assert.Equal("https://keycloak.example/realms/dev", options.Authority);
+        Assert.Equal("https://keycloak.example/realms/dev", options.TokenValidationParameters.ValidIssuer);
+        Assert.Null(provider.GetRequiredService<IOptions<ConsoleAuthOptions>>().Value.MetadataAddress);
+    }
+
     [Theory]
     [InlineData("opensandbox-web", true)]
     [InlineData("another-client", false)]
