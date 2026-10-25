@@ -60,6 +60,7 @@
 | G4 | 跨命名空间只读盘点：卷、归属、挂载状态、容量、生命周期、违规 |
 | G5 | 卷消失可被事后发现与归因（合法回收 / 意外消失 / 命名空间级联） |
 | G6 | 管理控制台提供完整运营界面：列表、详情、租户与 Key 管理、违规报告、回填导入 |
+| G7 | 控制台由 Keycloak OIDC 保护，按分面角色（sandbox / volume × admin / viewer）授权；管理 API 默认拒绝匿名 |
 
 ### 2.2 非目标
 
@@ -72,7 +73,7 @@
 | NG5 | 不覆盖未打受管标记的命名空间 |
 | NG6 | 不消费 Kubernetes audit log；归因只基于台账事件与观测历史 |
 | NG7 | 通过本控制台沙箱界面直接创建的卷不自动注册（无租户上下文） |
-| NG8 | 本期不引入控制台登录鉴权（沿用现状，见 §8 假设 A-1） |
+| NG8 | 不做控制台内的租户级数据隔离：控制台角色是平台级；租户自助仅通过租户 API Key 的租户 API |
 
 ---
 
@@ -88,6 +89,7 @@
 | **观测** | `cluster_volumes` 表，集群当前状态的快照，由周期扫描写入 |
 | **受管命名空间** | 带 `opensandbox.io/volume-managed=true` 标签的命名空间 |
 | **声明** | 业务通过注册 API 明确写出卷的归属，而不是由平台推断 |
+| **分面角色** | Keycloak 客户端角色 `sandbox:admin\|viewer`、`volume:admin\|viewer`；admin 含同面 viewer，两面互不蕴含 |
 
 ---
 
@@ -251,6 +253,19 @@ PVC 使用以下标签（键与取值由单元测试逐字锁定）：
 
 侧边栏新增「卷管理」组。前端沿用 React Router + Ant Design + TanStack Query + Vitest。
 
+#### FR-13 控制台认证与角色
+
+- 控制台全部页面与全部管理 API（`/api/v1/sandboxes*`、`/api/v1/volumes*`、`/api/v1/volume-tenants*`、`/api/v1/console/*`）要求 Keycloak 登录；匿名只允许健康检查、静态资源与 SPA 入口。
+- 后端校验 JWT 的 issuer、有效期与 `azp == ClientId`；不校验 `aud`（Keycloak 的 `aud` 恒为 `account`）。角色只读 `resource_access.<ClientId>.roles`。
+- 角色为 `sandbox:admin|viewer`、`volume:admin|viewer`；admin 含同面 viewer，两面互不蕴含。
+- 默认拒绝：未登记规则的 `/api/*` 一律拒绝；角色不足返回 403；未认证返回 401。
+- 租户 API（`/api/v1/tenant/volumes*`）继续使用每租户 API Key；控制台 JWT 不能调用租户 API，租户 Key 不能调用管理 API。
+- 不再存在 `AdminApiKey` 管理后门。
+- 前端用授权码 + PKCE(S256) 登录，token 存 `sessionStorage`，到期前静默续期，401 时清空并重登；登录域由后端运行时注入首页。
+- 无任何角色的账号可以完成登录，但只能看到「无权限」页并退出。
+
+**验收**：§6.4 权限矩阵逐格测试；`azp` 不符、issuer 不符、过期、无 token 全部 401；租户 Key 与控制台 JWT 互不越界；前端登录、续期、退出与无权限页有 Vitest 用例。
+
 ### 4.2 非功能需求
 
 | 编号 | 需求 | 验收 |
@@ -263,6 +278,8 @@ PVC 使用以下标签（键与取值由单元测试逐字锁定）：
 | NFR-6 | 密钥安全：库中只存哈希；日志不得出现明文 Key | 代码审查 + 日志断言 |
 | NFR-7 | 审计 append-only：无更新/删除事件的 API | 端点清单审查 |
 | NFR-8 | 标签值合法：owner 标签按 §6.2 规范化，超限时省略而非截断成错误值 | 单测 |
+| NFR-9 | 控制台 API 默认拒绝：匿名 401；已登录但角色不足 403；未登记规则的 `/api/*` 同样拒绝 | RBAC 矩阵测试 + 端点清单审查 |
+| NFR-10 | 登录域只由后端运行时注入；生产前端构建不内置 realm 回落；`Auth` 配置缺失时后端启动失败 | 配置注入测试 + 打包产物审查 |
 
 ### 4.3 约束
 
@@ -272,8 +289,9 @@ PVC 使用以下标签（键与取值由单元测试逐字锁定）：
 | C-2 | CEL 是静态规则，不能查询台账或外部系统 |
 | C-3 | OpenSandbox 的卷请求体没有 metadata 字段，标签只能在 PVC 创建后写入 |
 | C-4 | 删除命名空间会级联删除 PVC，不经过 PVC 的 admission |
-| C-5 | 控制台本期无登录鉴权（内网部署假设） |
+| C-5 | 控制台依赖 Keycloak 登录；Keycloak 不可用时控制台不可登录（删除保护、扫描与租户 API 不受影响） |
 | C-6 | 组件需要 PVC `patch` 权限；RBAC 无法限制到标签键级 |
+| C-7 | Keycloak 侧需为控制台创建 public client 与四个客户端角色（部署前置，见 §6.12） |
 
 ---
 
@@ -282,6 +300,13 @@ PVC 使用以下标签（键与取值由单元测试逐字锁定）：
 ### 5.1 总体架构
 
 ```text
+浏览器（管理员）
+   │ ① 授权码 + PKCE → Keycloak
+   │ ② Bearer JWT → 管理 API
+   ▼
+Keycloak（realm 内 public client：opensandbox-web）
+   └── discovery / JWKS ──► OpenSandBoxWeb（JwtBearer 校验）
+
 Kubernetes API Server
 ├── ValidatingAdmissionPolicy (CEL)  ← 拦截 PVC DELETE（独立于组件可用性）
 ├── Namespace labels: opensandbox.io/volume-managed=true
@@ -317,7 +342,7 @@ Kubernetes API Server
 | 删除保护 | 集群 CEL 策略 |
 | 盘点与对账 | 全局 VolumeManager 后台 Worker |
 | 回收决策与执行 | **各业务**（goodcrew 的 `VolumeReclaimPolicy` / `VolumeInventoryService` 不变） |
-| 控制台登录鉴权 | 本期不引入（现状） |
+| 控制台登录与角色 | Keycloak OIDC（JwtBearer 校验 + 分面角色） |
 
 ### 5.3 后端代码结构
 
@@ -327,7 +352,15 @@ backend/
 │   └── VolumeContracts.cs                 # 请求/响应 DTO
 ├── Host/Web/
 │   ├── VolumeAgentEndpoints.cs            # /api/v1/tenant/volumes（租户 API）
-│   └── VolumeAdminEndpoints.cs            # /api/v1/volumes、/api/v1/volume-tenants
+│   ├── VolumeAdminEndpoints.cs            # /api/v1/volumes、/api/v1/volume-tenants
+│   └── ConsoleEndpoints.cs                # /api/v1/console/me
+├── Host/Security/
+│   ├── ConsoleAuth.cs                     # JwtBearer + FallbackPolicy + 401/403 响应
+│   ├── ConsoleRoles.cs                    # resource_access.<clientId>.roles 解析
+│   ├── ConsoleRbac.cs                     # 全局 RBAC 中间件（路径 + 方法 → 角色）
+│   └── TenantApiKeyMiddleware.cs          # 租户 Key → 已认证主体（供 FallbackPolicy）
+├── Host/Configuration/
+│   └── AuthConfigInjection.cs             # 登录域注入 index.html
 ├── Infrastructure/
 │   ├── DependencyInjection/
 │   │   └── VolumeManagerRegistration.cs   # DI 注册 + 配置绑定
@@ -489,11 +522,51 @@ backend/
 
 ### 6.4 鉴权
 
-| 面 | 机制 |
-| --- | --- |
-| 租户 API | `Authorization: Bearer <key>`；服务端 SHA-256 后按哈希查 Key；校验未吊销、租户 `active` |
-| 管理 API | 默认不校验（内网，现状）；配置 `VolumeManager:AdminApiKey` 后要求 `X-Admin-Key` |
-| 管理 UI | 同控制台现状，无登录；启用 `AdminApiKey` 时由设置页保存到 localStorage，axios 自动附加请求头 |
+**三个面、三套凭据、互不通用。**
+
+| 面 | 凭据 | 校验 |
+| --- | --- | --- |
+| 控制台 UI + 管理 API | Keycloak access token（`Authorization: Bearer <JWT>`） | issuer、有效期、`azp == ClientId`；角色见下 |
+| 租户 API（`/api/v1/tenant/volumes*`） | 每租户 API Key（`Authorization: Bearer <key>`） | SHA-256 哈希查表；未吊销；租户 `active`；命名空间归属 |
+| 健康检查 / 静态资源 | 匿名 | — |
+
+**JwtBearer 参数**（仿 goodcrew-pro `AuthExtensions`，2026-08-03 Spec §8）：
+
+- `Authority = Auth:Authority`（配置值统一去除尾部 `/`），`MapInboundClaims = false`，`RequireHttpsMetadata = Auth:RequireHttpsMetadata`（默认 `true`）。
+- `ValidateIssuer = true`，`ValidIssuer = Authority`（去除尾部 `/` 后精确匹配）；`ValidateLifetime = true`，`ClockSkew = 30s`。
+- `ValidateAudience = false`：Keycloak access token 的 `aud` 恒为 `account`，按 `aud` 校验会拒掉所有合法令牌。改在 `OnTokenValidated` 校验 `azp == Auth:ClientId`，缺失 `azp` 同样拒绝。
+- `NameClaimType = preferred_username`；`/console/me` 的 `subject` 取 `sub`，`username` 取 `preferred_username`（缺失时回落 `sub` 前 8 位）。
+- `OnChallenge` → 401 `{code:"unauthorized", message}`；`OnForbidden` → 403 `{code:"forbidden", message, roles}`。
+- `Authorization: FallbackPolicy = RequireAuthenticatedUser()`；`Auth:Authority` / `Auth:ClientId` 缺失时启动即抛异常。
+
+**角色解析**：
+
+- 只读 `resource_access.<ClientId>.roles`；不读 `realm_access`，不读其他客户端的 `resource_access`。
+- claim 缺失、JSON 畸形、`roles` 非数组 → 视为无角色（fail-closed）。
+- 角色：`sandbox:admin`、`sandbox:viewer`、`volume:admin`、`volume:viewer`；同一面内 `admin` 满足 `viewer` 的要求。
+
+**权限矩阵**（`UseConsoleRbac`，按路径前缀 + 方法判定）：
+
+| 路径 | 匿名 | sandbox:viewer | sandbox:admin | volume:viewer | volume:admin |
+| --- | --- | --- | --- | --- | --- |
+| `/api/v1/sandboxes*` GET（含 metrics / SSE） | 401 | ✓ | ✓ | 403 | 403 |
+| `/api/v1/sandboxes*` 非 GET（create / pause / resume / renew / delete） | 401 | 403 | ✓ | 403 | 403 |
+| `GET /api/v1/sandboxes/{id}/endpoints/{port}` | 401 | 403 | ✓ | 403 | 403 |
+| `/api/v1/volumes*`、`/api/v1/volume-tenants*` GET | 401 | 403 | 403 | ✓ | ✓ |
+| 上两组的非 GET（scan / import / lifecycle / 租户与 Key 管理） | 401 | 403 | 403 | 403 | ✓ |
+| `GET /api/v1/console/me` | 401 | ✓ | ✓ | ✓ | ✓ |
+| `/api/v1/tenant/*` | 租户 Key | — | — | — | — |
+| 其他 `/api/*` | 401 | 403 | 403 | 403 | 403 |
+| `/api/v1/health`、`/healthz`、`/readyz` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| 静态资源、SPA fallback | ✓ | ✓ | ✓ | ✓ | ✓ |
+
+- GET/HEAD 视为读；OPTIONS 放行（生产同源、开发经 Vite proxy，不产生预检）。
+- 规则按路径前缀匹配；`GET .../endpoints/{port}` 单列为 admin 例外，先于通用沙箱 GET 规则。
+- `GET .../endpoints/{port}` 返回可直接访问沙箱数据面的 URL，按 admin 处理，不当作普通只读。
+- **未匹配的 `/api/*` 拒绝**：新增端点必须先在本表登记，漏登记只会更严，不会漏成洞。
+- 健康检查端点与 SPA fallback 显式 `AllowAnonymous()`，否则 FallbackPolicy 会拦住匿名访问。
+- 无任何角色的账号可以登录（`/console/me` 返回空 roles），其余管理 API 一律 403；前端显示无权限页。
+- 租户 Key 中间件位于 `UseAuthentication` 之前：命中 `/api/v1/tenant` 时校验 Key 并把租户主体写入 `HttpContext.User`，其余路径直接放行给 JwtBearer。FallbackPolicy 仍然成立；租户主体不带 `resource_access`，无法通过管理 API 的角色检查。
 
 ### 6.5 注册与冲突矩阵
 
@@ -679,6 +752,8 @@ spec:
 
 ### 6.9 API 清单
 
+管理 API 全部要求 `Authorization: Bearer <JWT>`，所需角色见 §6.4；租户 API 只认每租户 API Key。
+
 **租户 API（每租户 Key）**
 
 | 方法 | 路径 | 作用 |
@@ -691,6 +766,7 @@ spec:
 
 | 方法 | 路径 | 作用 |
 | --- | --- | --- |
+| GET | `/api/v1/console/me` | 当前账号、subject 与角色（任何已登录用户） |
 | GET | `/api/v1/volumes` | 分页/筛选/搜索/排序 |
 | GET | `/api/v1/volumes/{namespace}/{claimName}` | 详情 + 事件时间线 |
 | POST | `/api/v1/volumes/{namespace}/{claimName}/lifecycle` | 管理员变更 lifecycle |
@@ -728,12 +804,29 @@ POST /api/v1/volumes/import
 
 响应 200：`{ "results": [{ "namespace": "...", "claimName": "...", "status": "would-register", "message": "..." }] }`。`dryRun` 默认 `true`；逐条状态与注册 API 同构，另加 `would-register` / `would-update`。
 
-**错误语义**：400 参数非法；401 Key 无效；403 命名空间不属于该租户；404 未找到；409 冲突；503 依赖不可用。批量注册返回 200 + 逐条状态。
+**错误语义**：400 参数非法；401 未登录 / token 无效 / 租户 Key 无效；403 角色不足或命名空间不属于该租户；404 未找到；409 冲突；503 依赖不可用。批量注册返回 200 + 逐条状态。
+
+`/api/v1/console/me` 响应：
+
+```json
+{ "subject": "…", "username": "zhangsan", "roles": ["volume:admin", "sandbox:viewer"] }
+```
+
+只返回四个已知角色；客户端上配置的其他角色不出现在响应中，也不影响授权。
 
 **无删除端点。**
 
 ### 6.10 前端设计
 
+- `src/auth/`：`authModel.ts`（纯函数：登录域解析、授权/登出 URL、回调解析、续期判定）、`pkce.ts`（S256，用 `@noble/hashes` 兼容 HTTP 内网）、`auth.ts`（sessionStorage 存取、静默续期、`login` / `logout` / `ensureAuthenticated`）、`AuthGate.tsx`（启动门控）、`AuthFailure.tsx`、`AuthContext.tsx`（`/console/me` 结果）。
+- 启动顺序：`ensureAuthenticated()` 处理回调 / 复用未过期 token / 否则跳转 Keycloak，期间显示启动屏。回调失败显示失败页（重新登录 / 退出），不静默重跳。`returnTo` 随 state 交易存 `sessionStorage`，交易 15 分钟过期且只能换票一次，登录后恢复深链。
+- token 存 `sessionStorage`（关标签页即登出）；到期前 60 秒续期，并发的续期请求共用一个 Promise；续期失败清空并重登。
+- 退出走 Keycloak end-session（`id_token_hint` + `post_logout_redirect_uri`），同时清空本地 token。
+- `apiClient` 增加请求拦截器附加 `Authorization: Bearer`；响应拦截器遇 401 清 token 并重登，403 只把错误交给页面。
+- `useMetricsStream` 已使用 `fetch`，改为带 `Authorization` 头；401 触发重登；不把 token 放进 URL。
+- 布局：Header 右侧显示 `preferred_username`、角色标签与退出；菜单与写操作按角色门控（§6.4 矩阵）；`/` 按角色落到 `/dashboard` 或 `/volumes`；无任何角色时显示无权限页。
+- 设置页显示当前账号、subject、角色与登录域（authority / clientId），不提供任何密钥输入。
+- 登录域：优先读后端注入的 `window.__OPENSANDBOX_AUTH__`；仅 `import.meta.env.DEV` 下回落到 `VITE_AUTH_AUTHORITY` / `VITE_AUTH_CLIENT_ID`；生产构建两者都没有时启动即报错。
 - `src/api/volume.ts`：列表、详情、报告、扫描、导入、租户与 Key 管理、lifecycle 变更。
 - `src/api/types.ts`：`VolumeListItem`、`VolumeDetail`、`VolumeReport`、`VolumeTenant`、`VolumeEvent` 等。
 - 页面与路由见 FR-12；`AppLayout` 菜单新增「卷管理」组（卷列表 / 租户 / 违规报告 / 回填导入）。
@@ -741,7 +834,7 @@ POST /api/v1/volumes/import
 - 降级弹窗：显示当前卷信息、风险提示，`reason` 必填，提交后刷新。
 - 详情：两栏卡片 + `Timeline` 事件流；违规徽标与提示。
 - 导入：`Upload`/`TextArea` → 前端解析 CSV 为 JSON → 预览表 → dry-run 结果 → 二次确认后写入。
-- 测试：Vitest + Testing Library，覆盖 api 模块与关键交互。
+- 测试：Vitest + Testing Library，覆盖 api 模块、鉴权纯函数与关键交互。
 
 ### 6.11 配置
 
@@ -750,6 +843,11 @@ POST /api/v1/volumes/import
   "ConnectionStrings": {
     "VolumeManager": "Host=localhost;Port=5432;Database=opensandbox;Username=...;Password=..."
   },
+  "Auth": {
+    "Authority": "https://passport.example.com/realms/ai4cbrain",
+    "ClientId": "opensandbox-web",
+    "RequireHttpsMetadata": true
+  },
   "VolumeManager": {
     "Enabled": true,
     "ScanInterval": "00:05:00",
@@ -757,14 +855,14 @@ POST /api/v1/volumes/import
     "ManagedNamespaceSelector": "opensandbox.io/volume-managed=true",
     "MaxConcurrentNamespaces": 4,
     "KubeConfigPath": null,
-    "AdminApiKey": null,
     "MigrateOnStartup": true
   }
 }
 ```
 
+- `Auth:Authority` / `Auth:ClientId` 必填；缺失时启动失败。生产用 `Auth__Authority` / `Auth__ClientId` 环境变量注入。
+- `Auth:Authority` 同时用于后端验票、JWKS/discovery 拉取与首页登录域注入；前端不单独配置 realm，避免前后端指向不同 realm。
 - K8s 连接：`KubeConfigPath` 为空时使用 in-cluster 配置。
-- `AdminApiKey` 为空时不校验管理 API（内网现状）。
 - 启动迁移：`MigrateOnStartup=true` 时执行 EF Core 迁移；生产可用独立 Job 并关闭此项。
 
 ### 6.12 部署与权限
@@ -790,6 +888,26 @@ rules:
 
 无 `delete`、无 `create`、无 `update`。`patch` 无法在 RBAC 层限制到标签键；代码只 merge §6.1 的四个键（残余风险见 §8）。
 
+#### Keycloak 客户端（部署前置）
+
+在 realm 内创建 public client `opensandbox-web`（与 `Auth:ClientId` 一致）：
+
+| 配置 | 值 |
+| --- | --- |
+| Client authentication | Off（public client，控制台不保存 secret） |
+| Standard flow | On；Direct access grants / Service accounts Off |
+| PKCE | S256 必需（Advanced → Proof Key for Code Exchange Code Challenge Method = S256） |
+| Valid redirect URIs | `http(s)://<console-host>/*`；开发环境加 `http://localhost:3000/*` |
+| Valid post logout redirect URIs | `http(s)://<console-host>/*` |
+| Web origins | console origin；开发环境加 `http://localhost:3000`（token 端点需要 CORS） |
+| Client roles | `sandbox:admin`、`sandbox:viewer`、`volume:admin`、`volume:viewer` |
+| Access token lifespan | 建议 5 分钟（前端提前 60 秒续期） |
+| SSO session idle / max | 按组织策略；刷新令牌失效即要求重新登录 |
+
+- 角色分配给用户或组；无角色用户仍能登录，但只能看到无权限页。
+- 后端需能访问 `Auth:Authority` 的 discovery / JWKS 端点；浏览器需能访问授权、token 与 logout 端点。
+- 客户端创建步骤写入 `deploy/volume-manager/keycloak-client.md`。
+
 #### 部署清单
 
 目录 `deploy/volume-manager/`：
@@ -797,16 +915,20 @@ rules:
 - `rbac.yaml`：ServiceAccount + ClusterRole + ClusterRoleBinding
 - `protection-policy.yaml`：VAP + Binding
 - `namespace-labels.example.yaml`：受管命名空间打标示例
+- `keycloak-client.md`：客户端、角色与 redirect URI 配置步骤
 - 数据库：PostgreSQL 实例（外部或 compose 内置），连接串经 Secret 注入
 
 **docker-compose**：新增 `postgres:17` 服务（健康检查 + 持久化卷），backend `depends_on` 健康检查通过后启动。
 
-**健康检查**：`/healthz` 存活；`/readyz` 检查数据库可达（K8s 不可用不阻断 ready——扫描暂停，报告与台账仍可用）。
+**健康检查**：`/healthz` 存活；`/readyz` 检查数据库可达（K8s 不可用不阻断 ready——扫描暂停，报告与台账仍可用）；`/api/v1/health` 保留。三者均匿名，供探针与现有脚本使用。
+
+**静态托管**：`UseStaticFiles` 位于鉴权之前；`index.html` 与 SPA fallback 匿名并带 `Cache-Control: no-store`；带 hash 的静态资源可长缓存；`/api/*` 不落到 SPA fallback（返回 JSON 401/403/404）。
 
 ### 6.13 上线顺序
 
 | 阶段 | 动作 | 验收 |
 | --- | --- | --- |
+| P0 前置 | 按 §6.12 创建 Keycloak public client 与角色；给运维分配角色；配置 `Auth:Authority` / `Auth:ClientId` | 管理员能登录；无角色账号只能看到无权限页；匿名调管理 API 返回 401 |
 | P0 | 部署 PostgreSQL + 模块 + RBAC；给受管命名空间打标；开启扫描 | 列表与报告可读，未标注卷清单完整 |
 | P1 | 创建租户与 Key；业务接入注册新卷；导入存量卷 | 未标注/未注册数量趋近 0，覆盖率可查 |
 | P2 | 部署 VAP + Binding，`Warn + Audit` | 审计日志中「本会被挡住」的删除全部是该挡的 |
@@ -894,13 +1016,40 @@ P2 观察期不可跳过：这是唯一能发现「某个业务仍在合法删�
 
 **后果**：部署新增数据库依赖；docker-compose 与生产环境都需提供实例。
 
+### ADR-11 控制台以 Keycloak 为唯一登录门，不保留 AdminApiKey
+
+**决策**：管理 API 只接受 Keycloak JWT；不实现 `AdminApiKey` 后门。
+
+**理由**：双通道就是绕过 RBAC 的第二条路，且往往没有同等审计。goodcrew-pro 已验证单门（FallbackPolicy + 全局 RBAC）可行；内网不是授权边界。
+
+**后果**：Keycloak 故障时控制台不可登录；删除保护（CEL）、扫描与租户注册 API 不受影响。运维必须维护客户端的 redirect URI 与角色。
+
+### ADR-12 分面角色放在专用客户端的 `resource_access`
+
+**决策**：`opensandbox-web` 客户端角色 `sandbox:admin|viewer`、`volume:admin|viewer`；不读 `realm_access`，不复用 goodcrew-pro 客户端。
+
+**理由**：签发租户 API Key、降级业务卷比日常沙箱运维更敏感，应限制在更小人群；与 goodcrew 的角色语义解耦，两套系统权限互不牵连。
+
+**后果**：新用户需显式分配角色；无角色账号只能看到无权限页；角色变更在 Keycloak 侧审计。
+
+### ADR-13 登录域由后端运行时注入
+
+**决策**：后端把 `Auth:Authority` / `Auth:ClientId` 注入 `index.html` 的 `window.__OPENSANDBOX_AUTH__`；生产前端构建不内置 realm 回落。
+
+**理由**：一个镜像走遍所有环境；避免后端按 A realm 验票、前端把人送去 B realm 登录（表现只是「令牌不对」）。该做法在 goodcrew-pro `AuthConfigInjection` 已验证。
+
+**后果**：`index.html` 必须 `no-store`；注入缺失即启动报错；hash 静态资源仍可长缓存。
+
 ---
 
 ## 8. 风险与残余风险
 
 | 风险 | 影响 | 缓解 |
 | --- | --- | --- |
-| 控制台无登录鉴权（A-1） | 能访问控制台的人可查看跨租户卷数据、变更 lifecycle | 内网部署 + 网络策略；需要外网暴露前必须先引入登录；可启用 `AdminApiKey` |
+| Keycloak 不可用 | 控制台无法登录（删除保护、扫描与租户注册 API 不受影响） | Keycloak 高可用；监控 discovery 端点；不接受匿名降级 |
+| 控制台 token 存 `sessionStorage` | XSS 可窃取短时令牌 | 严格 CSP；不引入不可信脚本；access token 短时效 + 刷新令牌会话级 |
+| 角色配置错误 | 403 过严，或某面权限授予过宽 | 角色少而粗；无角色 fail-closed；Keycloak 侧变更走审计 |
+| 首页注入缺失 | 前端无法登录或指向错误 realm | 生产构建无 realm 回落，启动即报错；部署冒烟检查 `index.html` |
 | 组件有 PVC `patch` 权限 | 理论上可改任意 PVC 标签 | 代码只 patch 四个契约键；审查与最小权限；后续可用 VAP 限制组件自身的 patch 范围 |
 | 删除命名空间级联 | 绕过 PVC admission | 批量消失检测 + 报告；用 RBAC 限制 `namespaces` 删除 |
 | 直接删除 PV | PV 不继承 PVC 标签 | `reclaimPolicy: Retain`；限制 PV 删除权限 |
@@ -916,10 +1065,11 @@ P2 观察期不可跳过：这是唯一能发现「某个业务仍在合法删�
 
 | 编号 | 假设 |
 | --- | --- |
-| A-1 | 控制台部署在内网，能访问的人可视为平台运维；本期不引入登录 |
+| A-1 | 控制台接入 Keycloak；realm 管理员按 §6.12 创建 public client 与角色；浏览器与后端均能访问 Keycloak |
 | A-2 | 集群 Kubernetes ≥ 1.30 |
 | A-3 | 业务后端能访问本服务（集群内 Service 或内网地址） |
 | A-4 | OpenSandbox server 创建 PVC 是同步的，注册时 PVC 已存在（否则 `not-found` 重试） |
+| A-5 | 控制台主机与 Keycloak 时钟偏差在 30 秒容差内（NTP） |
 
 ---
 
@@ -939,10 +1089,13 @@ P2 观察期不可跳过：这是唯一能发现「某个业务仍在合法删�
 | FR-10 | 快照测试 | 结构与计数正确；截断标记正确 |
 | FR-11 | 单测 | 每个迁移都有事件 |
 | FR-12 | Vitest | 五个页面关键交互通过 |
+| FR-13 | 接口测试 + Vitest | §6.4 矩阵逐格；`azp`/issuer/过期/无 token → 401；租户 Key 与 JWT 互不越界；登录、续期、退出与无权限页通过 |
 | NFR-1 | 停机测试 | 保护仍生效 |
 | NFR-2 | 清单审查 | ClusterRole 无 delete |
 | NFR-3 | 性能测试 | 约定规模内扫描 ≤ 4 分钟 |
 | NFR-5 | 故障注入 | 依赖不可用返回 503，不返回空清单 |
+| NFR-9 | RBAC 矩阵测试 | 未匹配 `/api` 拒绝；匿名 401、角色不足 403 |
+| NFR-10 | 注入测试 + 打包审查 | 生产构建无 realm 回落；配置缺失启动失败 |
 
 ---
 
@@ -957,11 +1110,15 @@ P2 观察期不可跳过：这是唯一能发现「某个业务仍在合法删�
 | 注册服务 | fake 仓储 + fake K8s：冲突矩阵、标签 patch 失败、not-found、跨租户 |
 | API | `WebApplicationFactory` + Testcontainers PostgreSQL |
 | CEL | kind（≥1.30）：审批组内/外、business/ephemeral/非法值、未打标命名空间 |
+| 控制台鉴权 | `WebApplicationFactory` + 测试签发：issuer、`azp`、过期、无 token、角色矩阵逐格 |
+| 身份互斥 | 租户 Key 调管理 API → 403；控制台 JWT 调租户 API → 401 |
+| 登录域注入 | 单元测试：`</head>` 注入、JSON 转义、缺少 head 抛错 |
 | 前端 | Vitest + Testing Library：api 模块、列表筛选分页、详情时间线、导入 dry-run |
+| 前端鉴权 | Vitest：`authModel`、PKCE S256、state 不匹配、401 重登、角色门控 |
 
 ### 必须覆盖的边界
 
-`lifecycle` 缺失/空白/大写/拼错；owner 标签超长省略；命名空间列表失败不判消失；页码越界；搜索跨页；降级无 reason；Key 吊销后请求；导入冲突项不覆盖。
+`lifecycle` 缺失/空白/大写/拼错；owner 标签超长省略；命名空间列表失败不判消失；页码越界；搜索跨页；降级无 reason；Key 吊销后请求；导入冲突项不覆盖；`azp` 不符；无角色账号；吊销的租户 Key 调管理 API；生产构建缺少登录域注入。
 
 ---
 
@@ -969,16 +1126,18 @@ P2 观察期不可跳过：这是唯一能发现「某个业务仍在合法删�
 
 | # | PR | 内容 | 依赖 |
 | --- | --- | --- | --- |
-| 1 | `feat(volumes): contracts & classifier` | 标签常量、分类器、对账纯函数 + 单测（零外部依赖） | — |
-| 2 | `feat(volumes): persistence` | EF Core 实体、DbContext、迁移、仓储 + 测试 | 1 |
-| 3 | `feat(volumes): inventory scanner` | K8s 客户端、扫描 Worker、对账落库、标签重试 + fake `IKubernetes` 测试 | 1, 2 |
-| 4 | `feat(volumes): tenant api` | Key 鉴权、注册、lifecycle 变更、标签 patch + 测试 | 1–3 |
-| 5 | `feat(volumes): admin api` | 列表/详情/报告/导入/扫描、租户与 Key 管理 + 测试 | 2–4 |
-| 6 | `feat(volumes): protection manifests` | VAP/Binding/RBAC/命名空间打标 + kind e2e | —（YAML 独立；e2e 需 kind） |
-| 7 | `feat(volumes): admin ui` | api 模块、五个页面、路由与菜单、Vitest | 5 |
-| 8 | `docs(volumes): operations guide` | 接入指南、运维手册、事故处置（意外消失排查） | 全部 |
+| 1 | `feat(auth): backend console authentication` | JwtBearer（`azp`）、角色解析、RBAC 矩阵、租户 Key 中间件、`/console/me`、登录域注入、现有端点测试改用测试身份 + 鉴权测试 | — |
+| 2 | `feat(auth): frontend login & role gates` | `src/auth/*`、启动门控、axios 拦截、用户菜单、菜单/按钮门控、无权限页、设置页账号信息 + Vitest | 1 |
+| 3 | `feat(volumes): contracts & classifier` | 标签常量、分类器、对账纯函数 + 单测（零外部依赖） | — |
+| 4 | `feat(volumes): persistence` | EF Core 实体、DbContext、迁移、仓储 + 测试 | 3 |
+| 5 | `feat(volumes): inventory scanner` | K8s 客户端、扫描 Worker、对账落库、标签重试 + fake `IKubernetes` 测试 | 3, 4 |
+| 6 | `feat(volumes): tenant api` | Key 鉴权、注册、lifecycle 变更、标签 patch + 测试 | 1, 3–5 |
+| 7 | `feat(volumes): admin api` | 列表/详情/报告/导入/扫描、租户与 Key 管理、角色策略 + 测试 | 1, 4–6 |
+| 8 | `feat(volumes): protection manifests` | VAP/Binding/RBAC/命名空间打标 + kind e2e | —（YAML 独立；e2e 需 kind） |
+| 9 | `feat(volumes): admin ui` | api 模块、五个页面、路由与菜单、Vitest | 2, 7 |
+| 10 | `docs(volumes): operations guide` | 接入指南、Keycloak 客户端步骤、运维手册、事故处置（意外消失排查） | 全部 |
 
-PR 1 与 PR 6 可与其余并行。PR 2/3 可并行开发但 3 依赖 2 的实体。
+PR 2 与 PR 3 可并行；PR 1 必须先于 6/7 合并，否则管理 API 测试要重写两遍。PR 8 可与其余并行。PR 4/5 可并行开发但 5 依赖 4 的实体。
 
 ---
 
@@ -997,6 +1156,11 @@ PR 1 与 PR 6 可与其余并行。PR 2/3 可并行开发但 3 依赖 2 的实�
 | `VolumeFact.Uid` + 删除前 UID 前置条件 | `RegisteredUid` / 同名重建检测 |
 | 分页筛选→搜索→排序→切片的教训 | FR-8 列表语义 |
 | `VolumeInventoryService` 单命名空间 | 多命名空间、多租户 |
+| `AuthExtensions`（JwtBearer + `azp` + FallbackPolicy） | §6.4 控制台 JWT 校验 |
+| `Rbac.RolesOf`（`resource_access.<clientId>.roles`） | §6.4 角色解析 |
+| `Rbac.UseTrainerRbac`（全局默认拒绝） | `ConsoleRbac` |
+| `AuthConfigInjection`（登录域注入首页） | 同名 `AuthConfigInjection` |
+| `frontend/src/shared/auth/*`（PKCE、sessionStorage、静默续期） | `frontend/src/auth/*` |
 
 ### B. 与 v4 的差异
 
