@@ -54,19 +54,22 @@ describe('batchCreateSandboxes', () => {
 
   it('limits in-flight requests to concurrency', async () => {
     let active = 0
+    let maxActive = 0
     const createFn = vi.fn(async (req: CreateSandboxRequest) => {
       active += 1
-      expect(active).toBeLessThanOrEqual(2)
+      maxActive = Math.max(maxActive, active)
       await new Promise((resolve) => setTimeout(resolve, 10))
       active -= 1
       return created(`sb-${req.metadata!.index}`)
     })
 
-    await batchCreateSandboxes([item(0), item(1), item(2), item(3)], {
+    const result = await batchCreateSandboxes([item(0), item(1), item(2), item(3)], {
       concurrency: 2,
       createFn,
     })
 
+    expect(maxActive).toBe(2)
+    expect(result.failed).toHaveLength(0)
     expect(createFn).toHaveBeenCalledTimes(4)
   })
 })

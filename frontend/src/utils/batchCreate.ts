@@ -17,7 +17,7 @@ export async function batchCreateSandboxes(
   items: CreateSandboxRequest[],
   options?: BatchCreateOptions,
 ): Promise<BatchResult> {
-  const concurrency = options?.concurrency ?? 3
+  const concurrency = Math.max(1, Math.floor(options?.concurrency ?? 3))
   const createFn = options?.createFn ?? sandboxApi.create
   const successful: BatchResult['successful'] = []
   const failed: BatchResult['failed'] = []
