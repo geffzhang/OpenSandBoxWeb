@@ -214,7 +214,7 @@ PVC 使用以下标签（键与取值由单元测试逐字锁定）：
 - 总量与分类计数：observed / registered / unlabeled / unregistered / drift / missing / reappeared / unmanaged
 - 标签覆盖率与注册覆盖率
 - 按租户、按命名空间的分布
-- 违规清单：未标注、未注册、漂移、意外消失、失去受管命名空间、未知租户标签
+- 违规清单：未标注、未注册、漂移、意外消失、失去受管命名空间、同名新 UID 重现、未知租户标签
 - 列表超过 200 条时截断并给出 `truncated=true`，完整清单走筛选后的卷列表
 
 **验收**：固定输入快照测试。
@@ -329,7 +329,7 @@ Kubernetes API Server
    业务后端（goodcrew-pro、后续业务）
 ```
 
-**保护由 apiserver 执行，组件不在关键路径上。**
+保护由 apiserver 执行，组件不在关键路径上。
 
 ### 5.2 职责边界
 
@@ -358,8 +358,7 @@ backend/
 │   ├── ConsoleAuth.cs                     # JwtBearer + FallbackPolicy + 401/403 响应
 │   ├── ConsoleRoles.cs                    # resource_access.<clientId>.roles 解析
 │   ├── ConsoleRbac.cs                     # 全局 RBAC 中间件（路径 + 方法 → 角色）
-│   └── TenantApiKeyMiddleware.cs          # 租户 Key → 已认证主体（供 FallbackPolicy）
-├── Host/Configuration/
+│   ├── TenantApiKeyMiddleware.cs          # 租户 Key → 已认证主体（供 FallbackPolicy）
 │   └── AuthConfigInjection.cs             # 登录域注入 index.html
 ├── Infrastructure/
 │   ├── DependencyInjection/
@@ -403,7 +402,7 @@ backend/
 
 ### 6.2 数据模型
 
-**`tenants`**
+#### `tenants`
 
 | 列 | 类型 | 说明 |
 | --- | --- | --- |
@@ -412,14 +411,14 @@ backend/
 | `Status` | text | `active` \| `disabled` |
 | `CreatedAt` / `UpdatedAt` | timestamptz | |
 
-**`tenant_namespaces`**
+#### `tenant_namespaces`
 
 | 列 | 类型 | 说明 |
 | --- | --- | --- |
 | `Namespace` | text PK | **全局唯一**，一个命名空间只能属于一个租户 |
 | `TenantId` | text FK | |
 
-**`tenant_api_keys`**
+#### `tenant_api_keys`
 
 | 列 | 类型 | 说明 |
 | --- | --- | --- |
@@ -430,7 +429,7 @@ backend/
 | `Prefix` | text | 前 8 字符，用于识别 |
 | `CreatedAt` / `RevokedAt` / `LastUsedAt` | timestamptz | `LastUsedAt` 每 5 分钟最多更新一次 |
 
-**`volumes`（台账）**
+#### `volumes`（台账）
 
 | 列 | 类型 | 说明 |
 | --- | --- | --- |
@@ -452,7 +451,7 @@ backend/
 
 索引：`(Namespace, ClaimName)` 唯一；`TenantId`；`State`；`Lifecycle`。
 
-**`cluster_volumes`（观测，只保留当前存在的卷）**
+#### `cluster_volumes`（观测，只保留当前存在的卷）
 
 | 列 | 类型 | 说明 |
 | --- | --- | --- |
@@ -470,7 +469,7 @@ backend/
 | `FirstSeenAt` / `LastSeenAt` | timestamptz | |
 | `LastScanId` | uuid FK | |
 
-**`managed_namespaces`（命名空间发现状态）**
+#### `managed_namespaces`（命名空间发现状态）
 
 | 列 | 类型 | 说明 |
 | --- | --- | --- |
@@ -478,7 +477,7 @@ backend/
 | `FirstSeenAt` / `LastSeenAt` | timestamptz | |
 | `State` | text | `active` \| `gone` \| `unmanaged` |
 
-**`scan_runs`**
+#### `scan_runs`
 
 | 列 | 类型 | 说明 |
 | --- | --- | --- |
@@ -488,7 +487,7 @@ backend/
 | `NamespacesScanned` / `NamespacesSucceeded` / `VolumeCount` | int | |
 | `Errors` | jsonb | `[{ namespace, message }]` |
 
-**`volume_events`（append-only 审计）**
+#### `volume_events`（append-only 审计）
 
 | 列 | 类型 | 说明 |
 | --- | --- | --- |
@@ -522,7 +521,7 @@ backend/
 
 ### 6.4 鉴权
 
-**三个面、三套凭据、互不通用。**
+三个面、三套凭据、互不通用。
 
 | 面 | 凭据 | 校验 |
 | --- | --- | --- |
@@ -617,6 +616,8 @@ Content-Type: application/json
 | 标签 patch 失败（台账已落库） | `label-pending`，扫描时重试 |
 
 注册校验顺序：Key → 租户状态 → 命名空间（分配 + 受管）→ 字段合法性 → PVC 存在 → 台账冲突 → 写台账 → patch 标签。
+
+owner 唯一性按租户**跨命名空间**判定：同一租户的 `ownerKind`/`ownerId` 已绑定其他 `(namespace, claimName)` 时返回 `conflict`，不产生第二行台账。
 
 `reactivated` 时若请求 lifecycle 与旧台账不同，追加 `lifecycle-changed` 事件（`reason=reactivation`）。
 
@@ -754,7 +755,7 @@ spec:
 
 管理 API 全部要求 `Authorization: Bearer <JWT>`，所需角色见 §6.4；租户 API 只认每租户 API Key。
 
-**租户 API（每租户 Key）**
+#### 租户 API（每租户 Key）
 
 | 方法 | 路径 | 作用 |
 | --- | --- | --- |
@@ -762,7 +763,7 @@ spec:
 | POST | `/api/v1/tenant/volumes/{namespace}/{claimName}/lifecycle` | 变更 lifecycle |
 | GET | `/api/v1/tenant/volumes` | 查看自己的卷（分页同管理列表，强制租户过滤） |
 
-**管理 API（控制台）**
+#### 管理 API（控制台）
 
 | 方法 | 路径 | 作用 |
 | --- | --- | --- |
@@ -814,7 +815,7 @@ POST /api/v1/volumes/import
 
 只返回四个已知角色；客户端上配置的其他角色不出现在响应中，也不影响授权。
 
-**无删除端点。**
+无删除端点。
 
 ### 6.10 前端设计
 
@@ -1111,7 +1112,7 @@ P2 观察期不可跳过：这是唯一能发现「某个业务仍在合法删�
 | API | `WebApplicationFactory` + Testcontainers PostgreSQL |
 | CEL | kind（≥1.30）：审批组内/外、business/ephemeral/非法值、未打标命名空间 |
 | 控制台鉴权 | `WebApplicationFactory` + 测试签发：issuer、`azp`、过期、无 token、角色矩阵逐格 |
-| 身份互斥 | 租户 Key 调管理 API → 403；控制台 JWT 调租户 API → 401 |
+| 身份互斥 | 租户 Key 调管理 API → 401（管理 API 只接受 Keycloak JWT）；控制台 JWT 调租户 API → 401 |
 | 登录域注入 | 单元测试：`</head>` 注入、JSON 转义、缺少 head 抛错 |
 | 前端 | Vitest + Testing Library：api 模块、列表筛选分页、详情时间线、导入 dry-run |
 | 前端鉴权 | Vitest：`authModel`、PKCE S256、state 不匹配、401 重登、角色门控 |
@@ -1126,7 +1127,7 @@ P2 观察期不可跳过：这是唯一能发现「某个业务仍在合法删�
 
 | # | PR | 内容 | 依赖 |
 | --- | --- | --- | --- |
-| 1 | `feat(auth): backend console authentication` | JwtBearer（`azp`）、角色解析、RBAC 矩阵、租户 Key 中间件、`/console/me`、登录域注入、现有端点测试改用测试身份 + 鉴权测试 | — |
+| 1 | `feat(auth): backend console authentication` | JwtBearer（`azp`）、角色解析、RBAC 矩阵、`/console/me`、登录域注入、现有端点测试改用测试身份 + 鉴权测试 | — |
 | 2 | `feat(auth): frontend login & role gates` | `src/auth/*`、启动门控、axios 拦截、用户菜单、菜单/按钮门控、无权限页、设置页账号信息 + Vitest | 1 |
 | 3 | `feat(volumes): contracts & classifier` | 标签常量、分类器、对账纯函数 + 单测（零外部依赖） | — |
 | 4 | `feat(volumes): persistence` | EF Core 实体、DbContext、迁移、仓储 + 测试 | 3 |
