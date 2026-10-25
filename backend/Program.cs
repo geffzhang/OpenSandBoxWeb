@@ -17,6 +17,7 @@ app.UseMiddleware<SandboxExceptionMiddleware>();
 
 app.MapHealthEndpoints();
 app.MapSandboxEndpoints();
+app.MapMetricsEndpoints();
 
 app.Run();
 
