@@ -84,7 +84,7 @@ Console authentication uses the `Auth` section and is required:
 }
 ```
 
-The backend refuses to start when `Auth:Authority` or `Auth:ClientId` is missing. The Keycloak client is public, uses Standard Flow with PKCE S256, and must register the console origin (for example `http://localhost:3000/*` in development and `http://<console-host>:5080/*` in Docker) as a redirect URI and web origin.
+The backend refuses to start when `Auth:Authority` or `Auth:ClientId` is missing. The Keycloak client is public, uses Standard Flow with PKCE S256, and must register the console origin (for example `http://localhost:3000/*` in development and `http://<console-host>:5080/*` in Docker) as a redirect URI and web origin. Register the same origin under **Valid post logout redirect URIs** (for example `http://localhost:3000/*` and `http://<console-host>:5080/*`): the console always sends `post_logout_redirect_uri`, and Keycloak shows an error page after logout when that URI is not registered.
 
 ### API
 
@@ -110,16 +110,18 @@ Errors return a uniform body: `{ "code": "...", "message": "..." }`.
 ### Docker
 
 ```bash
-# Defaults work as-is: compose starts the web app (localhost:5080) and the built-in opensandbox-server (127.0.0.1:8090)
+# OpenSandbox settings work as-is: compose starts the web app (localhost:5080) and the built-in opensandbox-server (127.0.0.1:8090).
+# AUTH_AUTHORITY is mandatory: only the example .env supplies the project's shared dev realm.
 cp .env.example .env
 docker compose up -d
 ```
 
-- `opensandbox-web` reaches `opensandbox-server` over the compose network; the defaults require no `.env` changes. Set `OPENSANDBOX_DOMAIN` / `OPENSANDBOX_API_KEY` only when connecting to an external OpenSandbox platform.
+- `opensandbox-web` reaches `opensandbox-server` over the compose network; the OpenSandbox defaults require no `.env` changes. Set `OPENSANDBOX_DOMAIN` / `OPENSANDBOX_API_KEY` only when connecting to an external OpenSandbox platform.
+- `AUTH_AUTHORITY` is mandatory (`docker compose` fails fast without it). The example `.env` points at the project's shared dev realm `https://dev-passport.ai4c.cn/realms/ai4cbrain`, which is dev-only: production must use its own realm and register the console origin for both the redirect URI and the post logout redirect URI.
 - `opensandbox-server` mounts the host's `/var/run/docker.sock` to create sandbox containers (inherent to the upstream design), so it can see and clean up expired sandbox containers labelled OpenSandbox on the host; port 8090 is bound to 127.0.0.1 only.
 - Pre-pull the runtime images `opensandbox/execd:v1.1.0` and `opensandbox/egress:v1.1.7` before creating the first sandbox: a cold pull may exceed the backend's default 30s request timeout (raise OPENSANDBOX_REQUEST_TIMEOUT_SECONDS in .env).
 - After editing the inline server configuration in `docker-compose.yml`, run `docker compose up -d --force-recreate opensandbox-server` for the change to take effect.
-- The console now requires a Keycloak login. Register the console redirect URIs and web origins in the `opensandbox-web` client before exposing port 5080; the API rejects anonymous requests even if the UI is bypassed.
+- The console now requires a Keycloak login. Register the console redirect URIs, web origins and post logout redirect URIs in the `opensandbox-web` client before exposing port 5080; the API rejects anonymous requests even if the UI is bypassed.
 
 ### Testing
 
@@ -222,7 +224,7 @@ npm run dev
 }
 ```
 
-缺少 `Auth:Authority` 或 `Auth:ClientId` 时后端拒绝启动。Keycloak 客户端为公共客户端，启用 Standard Flow + PKCE S256，并需把控制台源（开发环境如 `http://localhost:3000/*`，Docker 环境如 `http://<控制台主机>:5080/*`）登记为 redirect URI 与 web origin。
+缺少 `Auth:Authority` 或 `Auth:ClientId` 时后端拒绝启动。Keycloak 客户端为公共客户端，启用 Standard Flow + PKCE S256，并需把控制台源（开发环境如 `http://localhost:3000/*`，Docker 环境如 `http://<控制台主机>:5080/*`）登记为 redirect URI 与 web origin，同时在 **Valid post logout redirect URIs** 中登记同一控制台源（如 `http://localhost:3000/*` 与 `http://<控制台主机>:5080/*`）。控制台注销时总会发送 `post_logout_redirect_uri`，未登记时注销后会落到 Keycloak 的错误页。
 
 ### API
 
@@ -248,16 +250,18 @@ npm run dev
 ### Docker
 
 ```bash
-# 默认即可运行：compose 会同时启动 web（localhost:5080）与内置 opensandbox-server（127.0.0.1:8090）
+# OpenSandbox 相关配置默认即可运行：compose 会同时启动 web（localhost:5080）与内置 opensandbox-server（127.0.0.1:8090）。
+# AUTH_AUTHORITY 为必填：只有示例 .env 提供了项目共享的开发 realm。
 cp .env.example .env
 docker compose up -d
 ```
 
-- `opensandbox-web` 通过 compose 网络访问 `opensandbox-server`，默认无需修改 `.env`；仅当连接外部 OpenSandbox 平台时才设置 `OPENSANDBOX_DOMAIN` / `OPENSANDBOX_API_KEY`。
+- `opensandbox-web` 通过 compose 网络访问 `opensandbox-server`，OpenSandbox 相关默认无需修改 `.env`；仅当连接外部 OpenSandbox 平台时才设置 `OPENSANDBOX_DOMAIN` / `OPENSANDBOX_API_KEY`。
+- `AUTH_AUTHORITY` 为必填（缺少时 `docker compose` 立即失败）。示例 `.env` 指向项目共享的开发 realm `https://dev-passport.ai4c.cn/realms/ai4cbrain`，仅用于开发；生产环境必须使用自己的 realm，并把控制台源同时登记为 redirect URI 与 post logout redirect URI。
 - `opensandbox-server` 挂载宿主机 `/var/run/docker.sock` 以创建沙箱容器（上游设计的固有行为），因此它能看到并清理宿主机上带 OpenSandbox 标签的过期沙箱容器；8090 仅绑定 127.0.0.1。
 - 首次创建沙箱前建议预拉运行时镜像 `opensandbox/execd:v1.1.0` 与 `opensandbox/egress:v1.1.7`：冷拉可能超过后端默认 30s 请求超时（可在 .env 中调大 OPENSANDBOX_REQUEST_TIMEOUT_SECONDS）。
 - 修改 `docker-compose.yml` 内联 server 配置后，需 `docker compose up -d --force-recreate opensandbox-server` 才会生效。
-- 控制台现在要求 Keycloak 登录。对外开放 5080 前，先在 `opensandbox-web` 客户端登记控制台 redirect URI 与 web origin；即使绕过界面，API 也会拒绝匿名请求。
+- 控制台现在要求 Keycloak 登录。对外开放 5080 前，先在 `opensandbox-web` 客户端登记控制台 redirect URI、web origin 与 post logout redirect URI；即使绕过界面，API 也会拒绝匿名请求。
 
 ### 测试
 
