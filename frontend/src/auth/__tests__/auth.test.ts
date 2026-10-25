@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   STORAGE_KEYS,
-  clearSession,
   ensureAuthenticated,
   getToken,
   login,
+  logout,
   resetAuthNavigatorForTests,
   setAuthNavigatorForTests,
 } from '../auth'
@@ -31,6 +31,7 @@ beforeEach(() => {
 afterEach(() => {
   resetAuthNavigatorForTests()
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
   delete (globalThis as { __OPENSANDBOX_AUTH__?: Injected }).__OPENSANDBOX_AUTH__
   sessionStorage.clear()
   window.history.replaceState(null, '', '/')
@@ -177,10 +178,114 @@ describe('token refresh', () => {
   })
 
   it('starts a new login when there is no refresh token', async () => {
+    sessionStorage.setItem(STORAGE_KEYS.access, 'stale-access')
+    sessionStorage.setItem(STORAGE_KEYS.expiresAt, String(Date.now() - 1000))
+    sessionStorage.setItem(STORAGE_KEYS.idToken, 'stale-id')
+
     const token = getToken()
 
     expect(navigated).toContain('/protocol/openid-connect/auth?')
     expect(await Promise.race([token, Promise.resolve('pending')])).toBe('pending')
-    expect(clearSession).toBeTypeOf('function')
+    for (const key of Object.values(STORAGE_KEYS)) {
+      expect(sessionStorage.getItem(key)).toBeNull()
+    }
+  })
+
+  it('clears the session and starts a new login when the refresh request fails', async () => {
+    sessionStorage.setItem(STORAGE_KEYS.access, 'stale-access')
+    sessionStorage.setItem(STORAGE_KEYS.expiresAt, String(Date.now() - 1000))
+    sessionStorage.setItem(STORAGE_KEYS.refresh, 'rt-stale')
+    sessionStorage.setItem(STORAGE_KEYS.idToken, 'id-stale')
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: false, status: 401, json: async () => ({}) }),
+    )
+
+    const token = getToken()
+    await vi.waitFor(() => expect(navigated).toContain('/protocol/openid-connect/auth?'))
+
+    expect(await Promise.race([token, Promise.resolve('pending')])).toBe('pending')
+    for (const key of Object.values(STORAGE_KEYS)) {
+      expect(sessionStorage.getItem(key)).toBeNull()
+    }
+  })
+})
+
+describe('logout', () => {
+  it('clears the session before redirecting to Keycloak logout', () => {
+    sessionStorage.setItem(STORAGE_KEYS.access, 'at')
+    sessionStorage.setItem(STORAGE_KEYS.refresh, 'rt')
+    sessionStorage.setItem(STORAGE_KEYS.idToken, 'id-token')
+    sessionStorage.setItem(STORAGE_KEYS.expiresAt, String(Date.now() + 60_000))
+
+    logout()
+
+    for (const key of Object.values(STORAGE_KEYS)) {
+      expect(sessionStorage.getItem(key)).toBeNull()
+    }
+
+    expect(navigated).toContain('/protocol/openid-connect/logout?')
+    const url = new URL(navigated)
+    expect(url.searchParams.get('client_id')).toBe('opensandbox-web')
+    expect(url.searchParams.get('post_logout_redirect_uri')).toBe(`${window.location.origin}/`)
+    expect(url.searchParams.get('id_token_hint')).toBe('id-token')
+  })
+
+  it('clears the session and returns to the console root when config is unavailable', () => {
+    delete (globalThis as { __OPENSANDBOX_AUTH__?: Injected }).__OPENSANDBOX_AUTH__
+    vi.stubEnv('VITE_AUTH_AUTHORITY', '')
+    vi.stubEnv('VITE_AUTH_CLIENT_ID', '')
+    sessionStorage.setItem(STORAGE_KEYS.access, 'at')
+    sessionStorage.setItem(STORAGE_KEYS.refresh, 'rt')
+    sessionStorage.setItem(STORAGE_KEYS.idToken, 'id-token')
+    sessionStorage.setItem(STORAGE_KEYS.expiresAt, String(Date.now() + 60_000))
+
+    logout()
+
+    for (const key of Object.values(STORAGE_KEYS)) {
+      expect(sessionStorage.getItem(key)).toBeNull()
+    }
+    expect(navigated).toBe('/')
+  })
+})
+
+describe('boot refresh', () => {
+  it('refreshes an expired access token before starting a login', async () => {
+    sessionStorage.setItem(STORAGE_KEYS.access, 'stale-access')
+    sessionStorage.setItem(STORAGE_KEYS.expiresAt, String(Date.now() - 1000))
+    sessionStorage.setItem(STORAGE_KEYS.refresh, 'rt-1')
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ access_token: 'fresh-access', expires_in: 300 }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await ensureAuthenticated()
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(navigated).toBe('')
+    expect(sessionStorage.getItem(STORAGE_KEYS.access)).toBe('fresh-access')
+    const body = (fetchMock.mock.calls[0][1] as { body: URLSearchParams }).body
+    expect(body.get('grant_type')).toBe('refresh_token')
+    expect(body.get('refresh_token')).toBe('rt-1')
+  })
+
+  it('starts a new login when the boot refresh fails', async () => {
+    sessionStorage.setItem(STORAGE_KEYS.access, 'stale-access')
+    sessionStorage.setItem(STORAGE_KEYS.expiresAt, String(Date.now() - 1000))
+    sessionStorage.setItem(STORAGE_KEYS.refresh, 'rt-1')
+    sessionStorage.setItem(STORAGE_KEYS.idToken, 'id-token')
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: false, status: 400, json: async () => ({}) }),
+    )
+
+    const boot = ensureAuthenticated()
+    await vi.waitFor(() => expect(navigated).toContain('/protocol/openid-connect/auth?'))
+
+    expect(await Promise.race([boot, Promise.resolve('pending')])).toBe('pending')
+    for (const key of Object.values(STORAGE_KEYS)) {
+      expect(sessionStorage.getItem(key)).toBeNull()
+    }
   })
 })

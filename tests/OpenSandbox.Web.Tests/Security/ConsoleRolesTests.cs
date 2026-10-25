@@ -61,6 +61,32 @@ public sealed class ConsoleRolesTests
         Assert.Empty(ConsoleRoles.RolesOf(principal, ClientId));
     }
 
+    [Theory]
+    [InlineData("[]")]
+    [InlineData("\"x\"")]
+    [InlineData("null")]
+    [InlineData("42")]
+    public void RolesOf_NonObjectResourceAccess_ReturnsEmpty(string resourceAccess)
+    {
+        var principal = new ClaimsPrincipal(new ClaimsIdentity(
+            [new Claim("resource_access", resourceAccess)], "Test"));
+
+        Assert.Empty(ConsoleRoles.RolesOf(principal, ClientId));
+    }
+
+    [Theory]
+    [InlineData("{\"opensandbox-web\": []}")]
+    [InlineData("{\"opensandbox-web\": \"x\"}")]
+    [InlineData("{\"opensandbox-web\": null}")]
+    [InlineData("{\"opensandbox-web\": 42}")]
+    public void RolesOf_NonObjectClientEntry_ReturnsEmpty(string resourceAccess)
+    {
+        var principal = new ClaimsPrincipal(new ClaimsIdentity(
+            [new Claim("resource_access", resourceAccess)], "Test"));
+
+        Assert.Empty(ConsoleRoles.RolesOf(principal, ClientId));
+    }
+
     [Fact]
     public void RolesOf_DropsUnknownRoles()
     {

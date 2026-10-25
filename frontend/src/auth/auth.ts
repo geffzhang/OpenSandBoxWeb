@@ -73,9 +73,18 @@ export function login(options: { returnTo?: string } = {}): void {
 }
 
 export function logout(): void {
-  const config = resolveAuthConfig()
+  // 先清会话再解析配置：配置缺失时也不能把令牌留在浏览器里。
   const idToken = sessionStorage.getItem(STORAGE_KEYS.idToken) ?? ''
   clearSession()
+
+  let config: AuthConfig
+  try {
+    config = resolveAuthConfig()
+  } catch {
+    navigate('/')
+    return
+  }
+
   navigate(buildLogoutUrl(config, redirectUri(), idToken))
 }
 
@@ -135,6 +144,18 @@ export async function ensureAuthenticated(): Promise<void> {
   }
 
   if (currentAccessToken()) return
+
+  // 浏览器重启后 access token 可能已过期，但 refresh token 仍在：先静默续签，
+  // 只有续签失败才清空会话并跳转登录。
+  if (sessionStorage.getItem(STORAGE_KEYS.refresh)) {
+    try {
+      await refreshSession()
+      if (sessionStorage.getItem(STORAGE_KEYS.access)) return
+    } catch {
+      // 续签失败按未登录处理
+    }
+  }
+
   return requireLogin()
 }
 

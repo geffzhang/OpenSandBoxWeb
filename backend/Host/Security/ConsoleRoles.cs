@@ -29,8 +29,12 @@ public static class ConsoleRoles
         try
         {
             using var document = JsonDocument.Parse(raw);
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+                return Empty;
             if (!document.RootElement.TryGetProperty(clientId, out var client) ||
-                !client.TryGetProperty("roles", out var roles) ||
+                client.ValueKind != JsonValueKind.Object)
+                return Empty;
+            if (!client.TryGetProperty("roles", out var roles) ||
                 roles.ValueKind != JsonValueKind.Array)
                 return Empty;
 
