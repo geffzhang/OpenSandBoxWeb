@@ -4,7 +4,6 @@ import { App, Button, Card, Input, Select, Space, Table, Typography } from 'antd
 import type { TableProps } from 'antd'
 import { DeleteOutlined, ReloadOutlined } from '@ant-design/icons'
 import { sandboxApi } from '@/api/sandbox'
-import { extractErrorMessage } from '@/api/client'
 import type { Sandbox } from '@/api/types'
 import StatusBadge from '@/components/common/StatusBadge'
 import { usePolling } from '@/hooks/usePolling'
@@ -30,7 +29,7 @@ export default function SandboxList() {
     Number(localStorage.getItem(STORAGE_KEY_REFRESH_INTERVAL)) || LIST_REFRESH_INTERVAL_MS
 
   const { data, isFetching, refetch } = usePolling(
-    ['sandboxes', 'list', String(page), String(pageSize), states.join(',')],
+    ['sandboxes', 'list', String(page), String(pageSize), [...states].sort().join(',')],
     () => sandboxApi.list({ page, pageSize, state: states.length ? states : undefined }),
     refreshInterval,
   )
@@ -50,16 +49,12 @@ export default function SandboxList() {
       okButtonProps: { danger: true },
       cancelText: '取消',
       onOk: async () => {
-        try {
-          const results = await Promise.allSettled(ids.map((id) => sandboxApi.remove(id)))
-          const failedCount = results.filter((result) => result.status === 'rejected').length
-          if (failedCount === 0) message.success(`已删除 ${ids.length} 个沙箱`)
-          else message.warning(`删除完成，${failedCount} 个失败`)
-          setSelected([])
-          refetch()
-        } catch (error) {
-          message.error(extractErrorMessage(error))
-        }
+        const results = await Promise.allSettled(ids.map((id) => sandboxApi.remove(id)))
+        const failedCount = results.filter((result) => result.status === 'rejected').length
+        if (failedCount === 0) message.success(`已删除 ${ids.length} 个沙箱`)
+        else message.warning(`删除完成，${failedCount} 个失败`)
+        setSelected([])
+        refetch()
       },
     })
   }
@@ -125,14 +120,21 @@ export default function SandboxList() {
             style={{ minWidth: 220 }}
             options={STATE_OPTIONS.map((state) => ({ value: state, label: state }))}
             value={states}
-            onChange={setStates}
+            onChange={(values) => {
+              setStates(values)
+              setPage(1)
+              setSelected([])
+            }}
           />
           <Input.Search
             allowClear
             placeholder="搜索 ID 或元数据"
             style={{ width: 220 }}
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => {
+              setSearch(event.target.value)
+              setSelected([])
+            }}
           />
           <Button icon={<ReloadOutlined />} loading={isFetching} onClick={() => refetch()}>
             刷新
@@ -162,6 +164,7 @@ export default function SandboxList() {
           onChange: (nextPage, nextPageSize) => {
             setPage(nextPageSize !== pageSize ? 1 : nextPage)
             setPageSize(nextPageSize)
+            setSelected([])
           },
         }}
       />
