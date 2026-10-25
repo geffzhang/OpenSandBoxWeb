@@ -25,7 +25,7 @@ interface BatchResultView {
 }
 
 const toRequest = (item: BatchCreateItem): CreateSandboxRequest => ({
-  image: { uri: item.image },
+  image: { uri: item.image.trim() },
   entrypoint: item.entrypoint ?? [],
   resourceLimits: Object.fromEntries(
     Object.entries({ cpu: item.cpu ?? '', memory: item.memory ?? '' }).filter(([, v]) => v.trim()),
@@ -113,9 +113,15 @@ export default function BatchCreate() {
     }
     setProgress({ completed: 0, total: items.length })
     setResult(null)
-    const outcome = await batchCreateSandboxes(items.map(toRequest), {
-      onProgress: (completed, total) => setProgress({ completed, total }),
-    })
+    // Build each request exactly once: batchCreateSandboxes returns these same
+    // object references in outcome.*.request, so the Map below resolves rows by identity.
+    const pending = items.map((item) => ({ item, request: toRequest(item) }))
+    const outcome = await batchCreateSandboxes(
+      pending.map((entry) => entry.request),
+      {
+        onProgress: (completed, total) => setProgress({ completed, total }),
+      },
+    )
     setResult({
       successful: outcome.successful.map((entry) => ({
         image: entry.request.image.uri,
@@ -126,8 +132,19 @@ export default function BatchCreate() {
         error: entry.error,
       })),
     })
+    const requestToItem = new Map(pending.map((entry) => [entry.request, entry.item] as const))
+    const failedIds = new Set(
+      outcome.failed
+        .map((entry) => requestToItem.get(entry.request)?.id)
+        .filter((id): id is string => Boolean(id)),
+    )
+    setItems((prev) => prev.filter((item) => failedIds.has(item.id)))
     setProgress(null)
-    message.success(`批量创建完成：成功 ${outcome.successful.length}，失败 ${outcome.failed.length}`)
+    if (outcome.failed.length === 0) {
+      message.success(`批量创建完成：成功 ${outcome.successful.length}，失败 0`)
+    } else {
+      message.warning(`批量创建完成：成功 ${outcome.successful.length}，失败 ${outcome.failed.length}`)
+    }
   }
 
   const columns: TableProps<BatchCreateItem>['columns'] = [
