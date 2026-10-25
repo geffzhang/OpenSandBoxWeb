@@ -9,6 +9,7 @@ import {
   Descriptions,
   Modal,
   Progress,
+  Result,
   Row,
   Space,
   Tag,
@@ -41,8 +42,13 @@ export default function SandboxDetail() {
   const [renewAt, setRenewAt] = useState<dayjs.Dayjs | null>(null)
   const [renewing, setRenewing] = useState(false)
   const [history, setHistory] = useState<Metrics[]>([])
+  const [prevId, setPrevId] = useState(id)
+  if (prevId !== id) {
+    setPrevId(id)
+    setHistory([])
+  }
 
-  const { data: sandbox, isFetching } = usePolling(
+  const { data: sandbox, isFetching, isError, error } = usePolling(
     ['sandbox', id],
     () => sandboxApi.get(id),
     DETAIL_REFRESH_INTERVAL_MS,
@@ -74,7 +80,7 @@ export default function SandboxDetail() {
       if (action === 'pause') await sandboxApi.pause(id)
       if (action === 'resume') await sandboxApi.resume(id)
       message.success(`已${label}`)
-      queryClient.invalidateQueries({ queryKey: ['sandbox', id] })
+      if (action !== 'delete') queryClient.invalidateQueries({ queryKey: ['sandbox', id] })
       if (action === 'delete') navigate('/sandboxes')
     } catch (error) {
       message.error(extractErrorMessage(error))
@@ -99,6 +105,7 @@ export default function SandboxDetail() {
       await sandboxApi.renewExpiration(id, { expiresAt: renewAt.toISOString() })
       message.success('过期时间已更新')
       setRenewOpen(false)
+      setRenewAt(null)
       queryClient.invalidateQueries({ queryKey: ['sandbox', id] })
     } catch (error) {
       message.error(extractErrorMessage(error))
@@ -107,7 +114,20 @@ export default function SandboxDetail() {
     }
   }
 
-  if (!sandbox) return isFetching ? <Card loading /> : null
+  if (!sandbox) {
+    if (isFetching) return <Card loading />
+    if (isError) {
+      return (
+        <Result
+          status="error"
+          title="加载失败"
+          subTitle={extractErrorMessage(error)}
+          extra={<Button onClick={() => navigate('/sandboxes')}>返回列表</Button>}
+        />
+      )
+    }
+    return null
+  }
 
   return (
     <Space direction="vertical" size="large" style={{ display: 'flex' }}>
@@ -182,7 +202,8 @@ export default function SandboxDetail() {
           </Row>
           <MetricsChart
             data={history.map((sample) => ({
-              timestamp: sample.timestamp,
+              // ECharts time 轴需要毫秒时间戳；秒级输入（< 1e12）归一化
+              timestamp: sample.timestamp < 1e12 ? sample.timestamp * 1000 : sample.timestamp,
               cpu: sample.cpuUsedPct,
               memory: sample.memUsedMib,
             }))}
@@ -195,7 +216,11 @@ export default function SandboxDetail() {
         open={renewOpen}
         onOk={submitRenew}
         confirmLoading={renewing}
-        onCancel={() => setRenewOpen(false)}
+        okButtonProps={{ disabled: !renewAt }}
+        onCancel={() => {
+          setRenewOpen(false)
+          setRenewAt(null)
+        }}
         okText="确定"
         cancelText="取消"
       >
