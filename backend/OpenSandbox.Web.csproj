@@ -3,6 +3,9 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- 本项目不使用 .NET static web assets（前端产物由运行时手动托管），
+         关闭其清单发现以避免 dev 下 backend/wwwroot 不存在时 CreateBuilder 崩溃 -->
+    <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
   </PropertyGroup>
 
   <ItemGroup>
