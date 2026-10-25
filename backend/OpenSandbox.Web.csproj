@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- 本项目不使用 .NET static web assets（前端产物由运行时手动托管），
+         关闭其清单发现以避免 dev 下 backend/wwwroot 不存在时 CreateBuilder 崩溃 -->
+    <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Alibaba.OpenSandbox" Version="1.1.1" />
+  </ItemGroup>
+
+  <!-- 前端构建产物（frontend/dist）纳入发布目录，wwwroot 下托管；
+       dev 阶段 dist 不存在时该 glob 为空，无副作用 -->
+  <ItemGroup>
+    <Content Include="..\frontend\dist\**" LinkBase="wwwroot"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,9 @@
+.git
+**/node_modules
+frontend/dist
+backend/bin
+backend/obj
+tests
+docs
+screenshots
+.env
