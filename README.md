@@ -21,6 +21,7 @@ The repository follows a frontend/backend split: a React SPA and a .NET 10 API t
 - **TTL Management** - Extend sandbox expiration with a datetime picker
 - **Batch Operations** - Create multiple sandboxes via JSON import or manual input with progress tracking
 - **Single-process Deployment** - Backend serves the built frontend with SPA fallback
+- **Keycloak SSO** - Console login through Keycloak with separate sandbox and volume admin/viewer roles
 
 ### Tech Stack
 
@@ -52,6 +53,7 @@ dotnet run
 # Terminal 2 - frontend dev server (http://localhost:3000, proxies /api to 5080)
 cd frontend
 npm install
+cp .env.example .env.local   # Keycloak realm/client for the Vite dev server
 npm run dev
 ```
 
@@ -70,6 +72,20 @@ Backend settings in `backend/appsettings.json`:
 
 When running under Docker, compose overrides the same settings with the `OpenSandbox__Domain` / `OpenSandbox__ApiKey` environment variables (see `.env.example`).
 
+Console authentication uses the `Auth` section and is required:
+
+```json
+{
+  "Auth": {
+    "Authority": "https://keycloak.example.com/realms/your-realm",
+    "ClientId": "opensandbox-web",
+    "RequireHttpsMetadata": true
+  }
+}
+```
+
+The backend refuses to start when `Auth:Authority` or `Auth:ClientId` is missing. The Keycloak client is public, uses Standard Flow with PKCE S256, and must register the console origin (for example `http://localhost:3000/*` in development and `http://<console-host>:5080/*` in Docker) as a redirect URI and web origin.
+
 ### API
 
 All endpoints are prefixed with `/api/v1`:
@@ -77,6 +93,7 @@ All endpoints are prefixed with `/api/v1`:
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/health` | GET | Liveness check |
+| `/console/me` | GET | Current console identity and roles |
 | `/sandboxes` | GET | List sandboxes (pagination, state/metadata filters) |
 | `/sandboxes` | POST | Create a sandbox |
 | `/sandboxes/{id}` | GET | Sandbox details |
@@ -102,7 +119,7 @@ docker compose up -d
 - `opensandbox-server` mounts the host's `/var/run/docker.sock` to create sandbox containers (inherent to the upstream design), so it can see and clean up expired sandbox containers labelled OpenSandbox on the host; port 8090 is bound to 127.0.0.1 only.
 - Pre-pull the runtime images `opensandbox/execd:v1.1.0` and `opensandbox/egress:v1.1.7` before creating the first sandbox: a cold pull may exceed the backend's default 30s request timeout (raise OPENSANDBOX_REQUEST_TIMEOUT_SECONDS in .env).
 - After editing the inline server configuration in `docker-compose.yml`, run `docker compose up -d --force-recreate opensandbox-server` for the change to take effect.
-- Port 5080 is published on all interfaces by default and the admin UI has no authentication, so use it only on trusted networks; to allow local-machine access only, change the ports mapping to `127.0.0.1:5080:5080`, or put it behind a reverse proxy / authentication.
+- The console now requires a Keycloak login. Register the console redirect URIs and web origins in the `opensandbox-web` client before exposing port 5080; the API rejects anonymous requests even if the UI is bypassed.
 
 ### Testing
 
@@ -142,6 +159,7 @@ OpenSandbox Admin 是 **OpenSandbox** 的现代化 Web 管理控制台——一�
 - **TTL 管理** - 通过时间选择器延长沙箱过期时间
 - **批量操作** - JSON 导入或手动输入批量创建，带进度显示
 - **单进程部署** - 后端托管前端构建产物并提供 SPA fallback
+- **Keycloak 单点登录** - 控制台通过 Keycloak 登录，沙箱与卷各自区分 admin/viewer 角色
 
 ### 技术栈
 
@@ -173,6 +191,7 @@ dotnet run
 # 终端 2 - 前端开发服务器（http://localhost:3000，/api 代理到 5080）
 cd frontend
 npm install
+cp .env.example .env.local   # Vite 开发服务器使用的 Keycloak realm/client
 npm run dev
 ```
 
@@ -191,6 +210,20 @@ npm run dev
 
 在 Docker 下运行时，compose 通过环境变量 `OpenSandbox__Domain` / `OpenSandbox__ApiKey` 覆盖同名配置（见 `.env.example`）。
 
+控制台登录使用 `Auth` 配置，且为必填：
+
+```json
+{
+  "Auth": {
+    "Authority": "https://keycloak.example.com/realms/your-realm",
+    "ClientId": "opensandbox-web",
+    "RequireHttpsMetadata": true
+  }
+}
+```
+
+缺少 `Auth:Authority` 或 `Auth:ClientId` 时后端拒绝启动。Keycloak 客户端为公共客户端，启用 Standard Flow + PKCE S256，并需把控制台源（开发环境如 `http://localhost:3000/*`，Docker 环境如 `http://<控制台主机>:5080/*`）登记为 redirect URI 与 web origin。
+
 ### API
 
 所有端点以 `/api/v1` 为前缀：
@@ -198,6 +231,7 @@ npm run dev
 | 端点 | 方法 | 说明 |
 |------|------|------|
 | `/health` | GET | 存活检查 |
+| `/console/me` | GET | 当前控制台身份与角色 |
 | `/sandboxes` | GET | 沙箱列表（分页、状态/元数据过滤） |
 | `/sandboxes` | POST | 创建沙箱 |
 | `/sandboxes/{id}` | GET | 沙箱详情 |
@@ -223,7 +257,7 @@ docker compose up -d
 - `opensandbox-server` 挂载宿主机 `/var/run/docker.sock` 以创建沙箱容器（上游设计的固有行为），因此它能看到并清理宿主机上带 OpenSandbox 标签的过期沙箱容器；8090 仅绑定 127.0.0.1。
 - 首次创建沙箱前建议预拉运行时镜像 `opensandbox/execd:v1.1.0` 与 `opensandbox/egress:v1.1.7`：冷拉可能超过后端默认 30s 请求超时（可在 .env 中调大 OPENSANDBOX_REQUEST_TIMEOUT_SECONDS）。
 - 修改 `docker-compose.yml` 内联 server 配置后，需 `docker compose up -d --force-recreate opensandbox-server` 才会生效。
-- 5080 默认发布到所有网卡且管理界面无鉴权，仅应在受信网络使用；如需仅本机访问，将 ports 改为 `127.0.0.1:5080:5080`，或置于反向代理/鉴权之后。
+- 控制台现在要求 Keycloak 登录。对外开放 5080 前，先在 `opensandbox-web` 客户端登记控制台 redirect URI 与 web origin；即使绕过界面，API 也会拒绝匿名请求。
 
 ### 测试
 
