@@ -13,6 +13,8 @@ builder.Services.AddOpenSandbox(builder.Configuration);
 
 var app = builder.Build();
 
+app.UseMiddleware<SandboxExceptionMiddleware>();
+
 app.MapHealthEndpoints();
 
 app.Run();
