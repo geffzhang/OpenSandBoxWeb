@@ -3,6 +3,7 @@ import AppLayout from '@/components/layout/AppLayout'
 import Dashboard from '@/pages/Dashboard'
 import SandboxDetail from '@/pages/SandboxDetail'
 import SandboxList from '@/pages/SandboxList'
+import CreateSandbox from '@/pages/CreateSandbox'
 import NotFound from '@/pages/NotFound'
 
 // 占位组件：Task 10-15 逐个替换
@@ -19,7 +20,7 @@ export const router = createBrowserRouter([
       { path: 'dashboard', element: <Dashboard /> },
       { path: 'sandboxes', element: <SandboxList /> },
       { path: 'sandboxes/:id', element: <SandboxDetail /> },
-      { path: 'create', element: <Placeholder title="创建沙箱" /> },
+      { path: 'create', element: <CreateSandbox /> },
       { path: 'batch-create', element: <Placeholder title="批量创建" /> },
       { path: 'settings', element: <Placeholder title="设置" /> },
       { path: '*', element: <NotFound /> },
