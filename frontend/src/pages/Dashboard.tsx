@@ -9,7 +9,7 @@ import { usePolling } from '@/hooks/usePolling'
 import { formatTime } from '@/utils/format'
 import { LIST_REFRESH_INTERVAL_MS } from '@/utils/constants'
 
-const STAT_STATES = ['Running', 'Paused', 'Pending', 'Failed'] as const
+const STAT_STATES = ['Running', 'Paused', 'Creating', 'Error'] as const
 
 const COLUMNS: TableProps<Sandbox>['columns'] = [
   { title: 'ID', dataIndex: 'id', key: 'id', ellipsis: true },
