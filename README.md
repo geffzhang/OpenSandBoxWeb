@@ -11,136 +11,105 @@
 
 OpenSandbox Admin is a modern web-based management console for **OpenSandbox** - a lightweight, secure sandbox environment orchestration platform. This admin dashboard provides a comprehensive interface for managing containerized sandbox instances, monitoring resource usage, and controlling sandbox lifecycles.
 
+The repository follows a frontend/backend split: a React SPA and a .NET 10 API that wraps the official [Alibaba.OpenSandbox](https://www.nuget.org/packages/Alibaba.OpenSandbox) SDK.
+
 ### Features
 
-- **Dashboard Overview** - Real-time statistics of sandbox states (Running, Paused, Pending, Failed)
-- **Sandbox Management**
-  - Create single or batch sandboxes from container images
-  - Pause, resume, and delete sandbox instances
-  - View detailed sandbox information and configurations
-  - Filter and search sandboxes by state or metadata
-- **Real-time Metrics** - Live CPU and memory monitoring with SSE (Server-Sent Events)
-- **TTL Management** - Extend sandbox expiration time with flexible duration options
-- **Batch Operations** - Create multiple sandboxes via JSON import or manual input
-- **Responsive Design** - Modern UI built with Element Plus components
+- **Dashboard Overview** - Real-time statistics of sandbox states (Running, Paused, Creating, Error)
+- **Sandbox Management** - Create single or batch sandboxes from container images; pause, resume and delete instances; filter and search by state or metadata
+- **Real-time Metrics** - Live CPU and memory monitoring streamed over SSE through the backend proxy
+- **TTL Management** - Extend sandbox expiration with a datetime picker
+- **Batch Operations** - Create multiple sandboxes via JSON import or manual input with progress tracking
+- **Single-process Deployment** - Backend serves the built frontend with SPA fallback
 
 ### Tech Stack
 
-| Technology | Version | Purpose |
-|------------|---------|---------|
-| Vue 3 | ^3.5.32 | Frontend framework |
-| TypeScript | ~6.0.2 | Type safety |
-| Vite | ^8.0.4 | Build tool |
-| Pinia | ^3.0.4 | State management |
-| Vue Router | ^5.0.4 | Routing |
-| Element Plus | ^2.13.6 | UI components |
-| ECharts | ^6.0.0 | Data visualization |
-| Axios | ^1.14.0 | HTTP client |
-| Sass | ^1.99.0 | CSS preprocessing |
+| Area | Technology |
+|------|------------|
+| Frontend | React 19, TypeScript, Vite, Ant Design 5, TanStack Query, ECharts, axios, dayjs |
+| Backend | .NET 10, ASP.NET Core Minimal APIs, Alibaba.OpenSandbox 1.1.1 |
+| Tests | xUnit + WebApplicationFactory (backend), Vitest + Testing Library (frontend) |
 
-### Prerequisites
+### Repository Structure
 
-- Node.js >= 18.0.0
-- npm >= 9.0.0 or pnpm >= 8.0.0
-- OpenSandbox Lifecycle API server running on backend
+```
+├── backend/       # .NET 10 API (Contracts / Host / Infrastructure layers)
+├── frontend/      # React 19 + Vite + Ant Design SPA
+├── tests/         # xUnit test project
+├── Dockerfile     # Multi-stage: node build -> dotnet publish -> runtime
+└── docker-compose.yml
+```
 
-### Installation
+### Getting Started
+
+Prerequisites: .NET SDK 10.0.401+, Node.js 20.19+ or 22.12+
 
 ```bash
-# Clone the repository
-git clone <repository-url>
-cd sandboxfront
+# Terminal 1 - backend (http://localhost:5080)
+cd backend
+dotnet run
 
-# Install dependencies
+# Terminal 2 - frontend dev server (http://localhost:3000, proxies /api to 5080)
+cd frontend
 npm install
+npm run dev
 ```
 
 ### Configuration
 
-Create environment files in the project root:
+Backend settings in `backend/appsettings.json`:
 
-**`.env.development`** (Development)
-```env
-# OpenSandbox Lifecycle API
-VITE_LIFECYCLE_API=http://localhost:8080/v1
+```json
+{
+  "OpenSandbox": {
+    "Domain": "https://sandbox.example.com",
+    "ApiKey": "your-api-key"
+  }
+}
 ```
 
-**`.env.production`** (Production)
-```env
-# Production environment
-VITE_LIFECYCLE_API=/api/v1
-```
+When running under Docker, compose overrides the same settings with the `OpenSandbox__Domain` / `OpenSandbox__ApiKey` environment variables (see `.env.example`).
 
-> **Note:** The Lifecycle API is the only endpoint you need to configure. Metrics endpoints are dynamically retrieved per sandbox.
+### API
 
-### Development
-
-```bash
-# Start development server
-npm run dev
-```
-
-The application will be available at `http://localhost:3000`.
-
-### Build
-
-```bash
-# Build for production
-npm run build
-
-# Preview production build
-npm run preview
-```
-
-### Project Structure
-
-```
-src/
-├── api/                    # API client and types
-│   ├── index.ts           # Axios instance configuration
-│   ├── sandbox.ts         # Sandbox API methods
-│   ├── metrics.ts         # Metrics API (SSE support)
-│   └── types.ts           # TypeScript type definitions
-├── components/            # Vue components
-│   ├── common/           # Shared components (StatusBadge, ConfirmDialog)
-│   ├── layout/           # Layout components (Header, Sidebar)
-│   ├── metrics/          # Metrics visualization (Gauges, Charts)
-│   └── sandbox/          # Sandbox-specific components
-├── composables/          # Vue composables
-│   └── usePolling.ts     # Auto-refresh polling hook
-├── router/               # Vue Router configuration
-├── stores/               # Pinia stores
-│   ├── sandbox.ts        # Sandbox state management
-│   ├── metrics.ts        # Metrics state management
-│   └── notification.ts   # Toast notifications
-├── styles/               # Global styles
-├── utils/                # Utility functions
-│   ├── constants.ts      # Application constants
-│   ├── format.ts         # Formatting utilities
-│   └── validators.ts     # Form validators
-└── views/                # Page components
-    ├── Dashboard.vue     # Main dashboard
-    ├── SandboxList.vue   # Sandbox listing
-    ├── SandboxDetail.vue # Sandbox details & metrics
-    ├── CreateSandbox.vue # Single sandbox creation
-    ├── BatchCreate.vue   # Batch creation wizard
-    └── Settings.vue      # Application settings
-```
-
-### API Integration
-
-The admin console integrates with the OpenSandbox Lifecycle API:
+All endpoints are prefixed with `/api/v1`:
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/sandboxes` | GET | List sandboxes with pagination |
-| `/sandboxes` | POST | Create a new sandbox |
-| `/sandboxes/:id` | GET | Get sandbox details |
-| `/sandboxes/:id` | DELETE | Delete a sandbox |
-| `/sandboxes/:id/pause` | POST | Pause a running sandbox |
-| `/sandboxes/:id/resume` | POST | Resume a paused sandbox |
-| `/sandboxes/:id/renew-expiration` | POST | Extend TTL |
-| `/sandboxes/:id/endpoints/:port` | GET | Get endpoint for metrics |
+| `/health` | GET | Liveness check |
+| `/sandboxes` | GET | List sandboxes (pagination, state/metadata filters) |
+| `/sandboxes` | POST | Create a sandbox |
+| `/sandboxes/{id}` | GET | Sandbox details |
+| `/sandboxes/{id}` | DELETE | Delete a sandbox |
+| `/sandboxes/{id}/pause` | POST | Pause a sandbox |
+| `/sandboxes/{id}/resume` | POST | Resume a sandbox |
+| `/sandboxes/{id}/renew-expiration` | POST | Extend expiration time |
+| `/sandboxes/{id}/endpoints/{port}` | GET | Get sandbox endpoint for a port |
+| `/sandboxes/{id}/metrics` | GET | Metrics snapshot |
+| `/sandboxes/{id}/metrics/watch` | GET | Live metrics over SSE |
+
+Errors return a uniform body: `{ "code": "...", "message": "..." }`.
+
+### Docker
+
+```bash
+# Defaults work as-is: compose starts the web app (localhost:5080) and the built-in opensandbox-server (127.0.0.1:8090)
+cp .env.example .env
+docker compose up -d
+```
+
+- `opensandbox-web` reaches `opensandbox-server` over the compose network; the defaults require no `.env` changes. Set `OPENSANDBOX_DOMAIN` / `OPENSANDBOX_API_KEY` only when connecting to an external OpenSandbox platform.
+- `opensandbox-server` mounts the host's `/var/run/docker.sock` to create sandbox containers (inherent to the upstream design), so it can see and clean up expired sandbox containers labelled OpenSandbox on the host; port 8090 is bound to 127.0.0.1 only.
+- Pre-pull the runtime images `opensandbox/execd:v1.1.0` and `opensandbox/egress:v1.1.7` before creating the first sandbox: a cold pull may exceed the backend's default 30s request timeout (adjustable via `OpenSandbox__RequestTimeoutSeconds`).
+- After editing the inline server configuration in `docker-compose.yml`, run `docker compose up -d --force-recreate opensandbox-server` for the change to take effect.
+- Port 5080 is published on all interfaces by default and the admin UI has no authentication, so use it only on trusted networks; to allow local-machine access only, change the ports mapping to `127.0.0.1:5080:5080`, or put it behind a reverse proxy / authentication.
+
+### Testing
+
+```bash
+dotnet test tests/OpenSandbox.Web.Tests
+cd frontend && npm test && npm run lint
+```
 
 ### Screenshots
 
@@ -161,169 +130,107 @@ MIT License
 
 ### 项目简介
 
-OpenSandbox Admin 是 **OpenSandbox** 的现代化 Web 管理控制台 —— 一个轻量级、安全的沙箱环境编排平台。该管理面板提供了完整的界面来管理容器化沙箱实例、监控资源使用情况以及控制沙箱生命周期。
+OpenSandbox Admin 是 **OpenSandbox** 的现代化 Web 管理控制台——一个轻量级、安全的沙箱环境编排平台。该管理面板提供完整的界面来管理容器化沙箱实例、监控资源使用情况以及控制沙箱生命周期。
+
+仓库采用前后端分离结构：React 单页应用 + .NET 10 API（封装官方 [Alibaba.OpenSandbox](https://www.nuget.org/packages/Alibaba.OpenSandbox) SDK）。
 
 ### 功能特性
 
-- **仪表盘概览** - 实时统计沙箱状态（运行中、已暂停、创建中、失败）
-- **沙箱管理**
-  - 从容器镜像创建单个或批量沙箱
-  - 暂停、恢复和删除沙箱实例
-  - 查看详细的沙箱信息和配置
-  - 按状态或元数据过滤和搜索沙箱
-- **实时监控** - 通过 SSE（服务器推送事件）实时监控 CPU 和内存使用
-- **TTL 管理** - 灵活的过期时间延长选项
-- **批量操作** - 通过 JSON 导入或手动输入批量创建沙箱
-- **响应式设计** - 基于 Element Plus 组件构建的现代 UI
+- **仪表盘概览** - 实时统计沙箱状态（运行中、已暂停、创建中、错误）
+- **沙箱管理** - 从容器镜像创建单个或批量沙箱；暂停、恢复、删除实例；按状态或元数据过滤和搜索
+- **实时监控** - CPU 与内存指标经后端代理以 SSE 推送，浏览器无需直连沙箱端点
+- **TTL 管理** - 通过时间选择器延长沙箱过期时间
+- **批量操作** - JSON 导入或手动输入批量创建，带进度显示
+- **单进程部署** - 后端托管前端构建产物并提供 SPA fallback
 
 ### 技术栈
 
-| 技术 | 版本 | 用途 |
-|------|------|------|
-| Vue 3 | ^3.5.32 | 前端框架 |
-| TypeScript | ~6.0.2 | 类型安全 |
-| Vite | ^8.0.4 | 构建工具 |
-| Pinia | ^3.0.4 | 状态管理 |
-| Vue Router | ^5.0.4 | 路由 |
-| Element Plus | ^2.13.6 | UI 组件库 |
-| ECharts | ^6.0.0 | 数据可视化 |
-| Axios | ^1.14.0 | HTTP 客户端 |
-| Sass | ^1.99.0 | CSS 预处理 |
+| 领域 | 技术 |
+|------|------|
+| 前端 | React 19、TypeScript、Vite、Ant Design 5、TanStack Query、ECharts、axios、dayjs |
+| 后端 | .NET 10、ASP.NET Core Minimal API、Alibaba.OpenSandbox 1.1.1 |
+| 测试 | xUnit + WebApplicationFactory（后端）、Vitest + Testing Library（前端） |
 
-### 环境要求
+### 仓库结构
 
-- Node.js >= 18.0.0
-- npm >= 9.0.0 或 pnpm >= 8.0.0
-- 后端运行 OpenSandbox Lifecycle API 服务
+```
+├── backend/       # .NET 10 API（Contracts / Host / Infrastructure 分层）
+├── frontend/      # React 19 + Vite + Ant Design 单页应用
+├── tests/         # xUnit 测试项目
+├── Dockerfile     # 多阶段构建：node 构建 -> dotnet 发布 -> 运行镜像
+└── docker-compose.yml
+```
 
-### 安装
+### 快速开始
+
+环境要求：.NET SDK 10.0.401+、Node.js 20.19+ 或 22.12+
 
 ```bash
-# 克隆仓库
-git clone <repository-url>
-cd sandboxfront
+# 终端 1 - 后端（http://localhost:5080）
+cd backend
+dotnet run
 
-# 安装依赖
+# 终端 2 - 前端开发服务器（http://localhost:3000，/api 代理到 5080）
+cd frontend
 npm install
+npm run dev
 ```
 
 ### 配置
 
-在项目根目录创建环境配置文件：
+后端配置位于 `backend/appsettings.json`：
 
-**`.env.development`**（开发环境）
-```env
-# OpenSandbox Lifecycle API
-VITE_LIFECYCLE_API=http://localhost:8080/v1
+```json
+{
+  "OpenSandbox": {
+    "Domain": "https://sandbox.example.com",
+    "ApiKey": "your-api-key"
+  }
+}
 ```
 
-**`.env.production`**（生产环境）
-```env
-# 生产环境
-VITE_LIFECYCLE_API=/api/v1
-```
+在 Docker 下运行时，compose 通过环境变量 `OpenSandbox__Domain` / `OpenSandbox__ApiKey` 覆盖同名配置（见 `.env.example`）。
 
-> **注意：** Lifecycle API 是唯一需要配置的地址，监控端点会针对每个沙箱动态获取。
+### API
 
-### 开发
+所有端点以 `/api/v1` 为前缀：
 
-```bash
-# 启动开发服务器
-npm run dev
-```
-
-应用将在 `http://localhost:3000` 启动。
-
-### 构建
-
-```bash
-# 生产环境构建
-npm run build
-
-# 预览生产构建
-npm run preview
-```
-
-### 项目结构
-
-```
-src/
-├── api/                    # API 客户端和类型定义
-│   ├── index.ts           # Axios 实例配置
-│   ├── sandbox.ts         # 沙箱 API 方法
-│   ├── metrics.ts         # 监控 API（支持 SSE）
-│   └── types.ts           # TypeScript 类型定义
-├── components/            # Vue 组件
-│   ├── common/           # 通用组件（状态徽章、确认对话框）
-│   ├── layout/           # 布局组件（头部、侧边栏）
-│   ├── metrics/          # 监控可视化（仪表盘、图表）
-│   └── sandbox/          # 沙箱相关组件
-├── composables/          # Vue 组合式函数
-│   └── usePolling.ts     # 自动刷新轮询钩子
-├── router/               # Vue Router 配置
-├── stores/               # Pinia 状态存储
-│   ├── sandbox.ts        # 沙箱状态管理
-│   ├── metrics.ts        # 监控数据状态管理
-│   └── notification.ts   # 消息通知
-├── styles/               # 全局样式
-├── utils/                # 工具函数
-│   ├── constants.ts      # 应用常量
-│   ├── format.ts         # 格式化工具
-│   └── validators.ts     # 表单验证器
-└── views/                # 页面组件
-    ├── Dashboard.vue     # 主仪表盘
-    ├── SandboxList.vue   # 沙箱列表
-    ├── SandboxDetail.vue # 沙箱详情与监控
-    ├── CreateSandbox.vue # 单个沙箱创建
-    ├── BatchCreate.vue   # 批量创建向导
-    └── Settings.vue      # 应用设置
-```
-
-### API 集成
-
-管理控制台与 OpenSandbox Lifecycle API 集成：
-
-| 接口 | 方法 | 描述 |
+| 端点 | 方法 | 说明 |
 |------|------|------|
-| `/sandboxes` | GET | 分页获取沙箱列表 |
-| `/sandboxes` | POST | 创建新沙箱 |
-| `/sandboxes/:id` | GET | 获取沙箱详情 |
-| `/sandboxes/:id` | DELETE | 删除沙箱 |
-| `/sandboxes/:id/pause` | POST | 暂停运行中的沙箱 |
-| `/sandboxes/:id/resume` | POST | 恢复已暂停的沙箱 |
-| `/sandboxes/:id/renew-expiration` | POST | 延长过期时间 |
-| `/sandboxes/:id/endpoints/:port` | GET | 获取监控端点 |
+| `/health` | GET | 存活检查 |
+| `/sandboxes` | GET | 沙箱列表（分页、状态/元数据过滤） |
+| `/sandboxes` | POST | 创建沙箱 |
+| `/sandboxes/{id}` | GET | 沙箱详情 |
+| `/sandboxes/{id}` | DELETE | 删除沙箱 |
+| `/sandboxes/{id}/pause` | POST | 暂停沙箱 |
+| `/sandboxes/{id}/resume` | POST | 恢复沙箱 |
+| `/sandboxes/{id}/renew-expiration` | POST | 延长过期时间 |
+| `/sandboxes/{id}/endpoints/{port}` | GET | 获取沙箱端口端点 |
+| `/sandboxes/{id}/metrics` | GET | 指标快照 |
+| `/sandboxes/{id}/metrics/watch` | GET | SSE 实时指标 |
 
-### 主要页面说明
+错误响应统一为：`{ "code": "...", "message": "..." }`。
 
-#### 仪表盘 (Dashboard)
-- 展示沙箱状态统计卡片（运行中、已暂停、创建中、失败）
-- 提供快捷操作按钮（创建沙箱、批量创建、刷新列表）
-- 显示最近创建的沙箱列表
+### Docker
 
-#### 沙箱列表 (Sandbox List)
-- 支持按状态筛选和关键词搜索
-- 分页展示所有沙箱
-- 支持批量选择和删除操作
-- 每 30 秒自动刷新数据
+```bash
+# 默认即可运行：compose 会同时启动 web（localhost:5080）与内置 opensandbox-server（127.0.0.1:8090）
+cp .env.example .env
+docker compose up -d
+```
 
-#### 沙箱详情 (Sandbox Detail)
-- 显示完整的沙箱配置信息（镜像、资源限制、环境变量、元数据等）
-- 运行状态的沙箱显示实时资源监控面板
-- 支持暂停/恢复/删除操作
-- 提供 TTL 续期功能
+- `opensandbox-web` 通过 compose 网络访问 `opensandbox-server`，默认无需修改 `.env`；仅当连接外部 OpenSandbox 平台时才设置 `OPENSANDBOX_DOMAIN` / `OPENSANDBOX_API_KEY`。
+- `opensandbox-server` 挂载宿主机 `/var/run/docker.sock` 以创建沙箱容器（上游设计的固有行为），因此它能看到并清理宿主机上带 OpenSandbox 标签的过期沙箱容器；8090 仅绑定 127.0.0.1。
+- 首次创建沙箱前建议预拉运行时镜像 `opensandbox/execd:v1.1.0` 与 `opensandbox/egress:v1.1.7`：冷拉可能超过后端默认 30s 请求超时（可调 `OpenSandbox__RequestTimeoutSeconds`）。
+- 修改 `docker-compose.yml` 内联 server 配置后，需 `docker compose up -d --force-recreate opensandbox-server` 才会生效。
+- 5080 默认发布到所有网卡且管理界面无鉴权，仅应在受信网络使用；如需仅本机访问，将 ports 改为 `127.0.0.1:5080:5080`，或置于反向代理/鉴权之后。
 
-#### 创建沙箱 (Create Sandbox)
-- 支持配置镜像、名称、入口命令
-- 可设置 CPU/内存资源限制
-- 支持自定义超时时间
-- 高级选项：环境变量、网络策略
+### 测试
 
-#### 批量创建 (Batch Create)
-- 支持 JSON 配置文件导入
-- 支持手动逐条添加
-- 预览确认后批量创建
-- 实时显示创建进度和结果
+```bash
+dotnet test tests/OpenSandbox.Web.Tests
+cd frontend && npm test && npm run lint
+```
 
 ### 截图
 
