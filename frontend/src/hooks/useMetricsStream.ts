@@ -31,17 +31,27 @@ export function useMetricsStream(
         const decoder = new TextDecoder()
         let buffer = ''
         setStatus('connected')
-        for (;;) {
-          const { done, value } = await reader.read()
-          if (done) break
-          buffer += decoder.decode(value, { stream: true })
-          const parts = buffer.split('\n\n')
-          buffer = parts.pop() ?? ''
-          for (const part of parts) {
-            const line = part.split('\n').find((l) => l.startsWith('data: '))
-            if (!line) continue
-            onEventRef.current(JSON.parse(line.slice(6)))
+        try {
+          for (;;) {
+            const { done, value } = await reader.read()
+            if (done) break
+            buffer += decoder.decode(value, { stream: true })
+            const parts = buffer.split('\n\n')
+            buffer = parts.pop() ?? ''
+            for (const part of parts) {
+              const line = part.split('\n').find((l) => l.startsWith('data: '))
+              if (!line) continue
+              try {
+                onEventRef.current(JSON.parse(line.slice(6)))
+              } catch {
+                // 跳过格式异常的事件，不中断整个流
+                continue
+              }
+            }
           }
+        } catch (err) {
+          await reader.cancel()
+          throw err
         }
       } catch (err) {
         if (!(err instanceof DOMException && err.name === 'AbortError')) {

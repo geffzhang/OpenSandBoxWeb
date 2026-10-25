@@ -55,5 +55,7 @@ describe('validateTimeout', () => {
 
   it('rejects zero and negatives', () => {
     expect(validateTimeout(0)).toContain('大于 0')
+    expect(validateTimeout(-1)).toContain('大于 0')
+    expect(validateTimeout(NaN)).toContain('大于 0')
   })
 })
