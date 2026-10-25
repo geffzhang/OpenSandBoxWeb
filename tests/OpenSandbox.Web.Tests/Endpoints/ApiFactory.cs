@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
@@ -12,10 +13,34 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        builder.UseEnvironment("Development");
         builder.ConfigureServices(services =>
         {
             services.RemoveAll<ISandboxGateway>();
             services.AddSingleton<ISandboxGateway>(Gateway);
+
+            services.AddAuthentication(options =>
+            {
+                options.DefaultScheme = TestAuthHandler.SchemeName;
+                options.DefaultAuthenticateScheme = TestAuthHandler.SchemeName;
+                options.DefaultChallengeScheme = TestAuthHandler.SchemeName;
+                options.DefaultForbidScheme = TestAuthHandler.SchemeName;
+            }).AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(
+                TestAuthHandler.SchemeName, _ => { });
         });
     }
+
+    public new HttpClient CreateClient() =>
+        CreateClientWithRoles("sandbox:admin", "volume:admin");
+
+    public HttpClient CreateClientWithRoles(params string[] roles)
+    {
+        var client = base.CreateClient();
+        client.DefaultRequestHeaders.Add(TestAuthHandler.UserHeader, "test-admin");
+        if (roles.Length > 0)
+            client.DefaultRequestHeaders.Add(TestAuthHandler.RolesHeader, string.Join(',', roles));
+        return client;
+    }
+
+    public HttpClient CreateAnonymousClient() => base.CreateClient();
 }

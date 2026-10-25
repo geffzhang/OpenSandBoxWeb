@@ -24,7 +24,7 @@ public static class SpaFallbackEndpoints
 
         app.UseDefaultFiles();
         app.UseStaticFiles();
-        app.MapFallbackToFile("index.html");
+        app.MapFallbackToFile("index.html").AllowAnonymous();
         return app;
     }
 }
