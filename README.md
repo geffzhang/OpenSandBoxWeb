@@ -43,7 +43,13 @@ The repository follows a frontend/backend split: a React SPA and a .NET 10 API t
 
 ### Getting Started
 
-Prerequisites: .NET SDK 10.0.401+, Node.js 20.19+ or 22.12+
+Prerequisites: .NET SDK 10.0.401+, Node.js 20.19+ or 22.12+, Docker (for the local Keycloak stack)
+
+Both terminals use the local Keycloak realm described below by default (`backend/appsettings.Development.json` and `frontend/.env.example`). Start Keycloak first:
+
+```bash
+docker compose --env-file .env.example up -d keycloak-postgres keycloak
+```
 
 ```bash
 # Terminal 1 - backend (http://localhost:5080)
@@ -53,7 +59,7 @@ dotnet run
 # Terminal 2 - frontend dev server (http://localhost:3000, proxies /api to 5080)
 cd frontend
 npm install
-cp .env.example .env.local   # Keycloak realm/client for the Vite dev server
+cp .env.example .env.local   # local Keycloak realm for the Vite dev server
 npm run dev
 ```
 
@@ -84,7 +90,9 @@ Console authentication uses the `Auth` section and is required:
 }
 ```
 
-The backend refuses to start when `Auth:Authority` or `Auth:ClientId` is missing. The Keycloak client is public, uses Standard Flow with PKCE S256, and must register the console origin (for example `http://localhost:3000/*` in development and `http://<console-host>:5080/*` in Docker) as a redirect URI and web origin. Register the same origin under **Valid post logout redirect URIs** (for example `http://localhost:3000/*` and `http://<console-host>:5080/*`): the console always sends `post_logout_redirect_uri`, and Keycloak shows an error page after logout when that URI is not registered.
+The backend refuses to start when `Auth:Authority` or `Auth:ClientId` is missing. `Auth:MetadataAddress` is optional: when set, OIDC discovery and JWKS are fetched from that URL while `Auth:Authority` remains the browser-visible issuer used for `iss` validation. Docker Compose uses this split (`http://localhost:8081/...` for the browser, `http://keycloak:8080/...` for the container); when it is unset, discovery is derived from `Authority`.
+
+The Keycloak client is public, uses Standard Flow with PKCE S256, and must register the console origin (for example `http://localhost:3000/*` in development and `http://<console-host>:5080/*` in Docker) as a redirect URI and web origin. Register the same origin under **Valid post logout redirect URIs** (for example `http://localhost:3000/*` and `http://<console-host>:5080/*`): the console always sends `post_logout_redirect_uri`, and Keycloak shows an error page after logout when that URI is not registered. The bundled local realm (`deploy/keycloak/opensandbox-realm.json`) already registers ports 3000 and 5080 for all three lists.
 
 ### API
 
@@ -110,18 +118,33 @@ Errors return a uniform body: `{ "code": "...", "message": "..." }`.
 ### Docker
 
 ```bash
-# OpenSandbox settings work as-is: compose starts the web app (localhost:5080) and the built-in opensandbox-server (127.0.0.1:8090).
-# AUTH_AUTHORITY is mandatory: only the example .env supplies the project's shared dev realm.
+# Local quick start: web (localhost:5080), opensandbox-server (127.0.0.1:8090) and Keycloak (localhost:8081).
 cp .env.example .env
-docker compose up -d
+# Set KEYCLOAK_ADMIN_PASSWORD and KEYCLOAK_DB_PASSWORD in .env; optionally change the dev user password in deploy/keycloak/opensandbox-realm.json.
+docker compose up -d --build
 ```
 
+The console requires a Keycloak login. The bundled realm provides these local development users, all with password `change-me-local` (local development only: change the passwords before any shared deployment):
+
+| User | Client role |
+|------|-------------|
+| `sandbox-admin` | `sandbox:admin` |
+| `sandbox-viewer` | `sandbox:viewer` |
+| `volume-admin` | `volume:admin` |
+| `volume-viewer` | `volume:viewer` |
+
+`volume-admin` and `volume-viewer` intentionally have no sandbox role, so they exercise the no-permission view.
+
+- Open `http://localhost:5080` for the console. The Keycloak admin console is at `http://localhost:8081` (log in with `KEYCLOAK_ADMIN_USER` / `KEYCLOAK_ADMIN_PASSWORD` from `.env`).
+- The realm in `deploy/keycloak/opensandbox-realm.json` is imported only on first start, when the Keycloak Postgres volume is empty. Editing the realm JSON does not re-import it; remove the volume to re-import it. The Keycloak admin bootstrap password is also applied only on first start. Warning: `docker compose down -v` destroys **all** compose volumes, including the Keycloak database.
+- `opensandbox-web` reaches Keycloak over the compose network: `Auth__Authority` stays the browser-visible `http://localhost:8081/realms/opensandbox` while `Auth__MetadataAddress` defaults to `http://keycloak:8080/realms/opensandbox/.well-known/openid-configuration` for in-container discovery and JWKS. If you change `KEYCLOAK_PORT`, update `AUTH_AUTHORITY` to match.
+- `opensandbox-web` has no startup dependency on Keycloak: the API starts even when Keycloak is down, and logins fail until Keycloak is ready.
 - `opensandbox-web` reaches `opensandbox-server` over the compose network; the OpenSandbox defaults require no `.env` changes. Set `OPENSANDBOX_DOMAIN` / `OPENSANDBOX_API_KEY` only when connecting to an external OpenSandbox platform.
-- `AUTH_AUTHORITY` is mandatory (`docker compose` fails fast without it). The example `.env` points at the project's shared dev realm `https://dev-passport.ai4c.cn/realms/ai4cbrain`, which is dev-only: production must use its own realm and register the console origin for both the redirect URI and the post logout redirect URI.
+- Production must use its own realm, register the console origin as redirect URI, web origin and post logout redirect URI, and set `AUTH_REQUIRE_HTTPS_METADATA=true`. To use an external realm instead of the local stack, point `AUTH_AUTHORITY` (and, if discovery must use a different URL, `AUTH_METADATA_ADDRESS`) at it.
 - `opensandbox-server` mounts the host's `/var/run/docker.sock` to create sandbox containers (inherent to the upstream design), so it can see and clean up expired sandbox containers labelled OpenSandbox on the host; port 8090 is bound to 127.0.0.1 only.
 - Pre-pull the runtime images `opensandbox/execd:v1.1.0` and `opensandbox/egress:v1.1.7` before creating the first sandbox: a cold pull may exceed the backend's default 30s request timeout (raise OPENSANDBOX_REQUEST_TIMEOUT_SECONDS in .env).
 - After editing the inline server configuration in `docker-compose.yml`, run `docker compose up -d --force-recreate opensandbox-server` for the change to take effect.
-- The console now requires a Keycloak login. Register the console redirect URIs, web origins and post logout redirect URIs in the `opensandbox-web` client before exposing port 5080; the API rejects anonymous requests even if the UI is bypassed.
+- The local realm registers the console redirect URIs, web origins and post logout redirect URIs for ports 3000 and 5080; when replacing it, register them before exposing port 5080. The API rejects anonymous requests even if the UI is bypassed.
 
 ### Testing
 
@@ -183,7 +206,13 @@ OpenSandbox Admin 是 **OpenSandbox** 的现代化 Web 管理控制台——一�
 
 ### 快速开始
 
-环境要求：.NET SDK 10.0.401+、Node.js 20.19+ 或 22.12+
+环境要求：.NET SDK 10.0.401+、Node.js 20.19+ 或 22.12+、Docker（用于本地 Keycloak 栈）
+
+两个开发服务器默认使用下文的本地 Keycloak realm（`backend/appsettings.Development.json` 与 `frontend/.env.example`）。先启动 Keycloak：
+
+```bash
+docker compose --env-file .env.example up -d keycloak-postgres keycloak
+```
 
 ```bash
 # 终端 1 - 后端（http://localhost:5080）
@@ -193,7 +222,7 @@ dotnet run
 # 终端 2 - 前端开发服务器（http://localhost:3000，/api 代理到 5080）
 cd frontend
 npm install
-cp .env.example .env.local   # Vite 开发服务器使用的 Keycloak realm/client
+cp .env.example .env.local   # Vite 开发服务器使用的本地 Keycloak realm/client
 npm run dev
 ```
 
@@ -224,7 +253,9 @@ npm run dev
 }
 ```
 
-缺少 `Auth:Authority` 或 `Auth:ClientId` 时后端拒绝启动。Keycloak 客户端为公共客户端，启用 Standard Flow + PKCE S256，并需把控制台源（开发环境如 `http://localhost:3000/*`，Docker 环境如 `http://<控制台主机>:5080/*`）登记为 redirect URI 与 web origin，同时在 **Valid post logout redirect URIs** 中登记同一控制台源（如 `http://localhost:3000/*` 与 `http://<控制台主机>:5080/*`）。控制台注销时总会发送 `post_logout_redirect_uri`，未登记时注销后会落到 Keycloak 的错误页。
+缺少 `Auth:Authority` 或 `Auth:ClientId` 时后端拒绝启动。`Auth:MetadataAddress` 为可选项：设置后 OIDC discovery 与 JWKS 从该地址获取，而 `Auth:Authority` 仍是浏览器可见的 issuer，用于 `iss` 校验。Docker Compose 即采用这种拆分（浏览器使用 `http://localhost:8081/...`，容器内使用 `http://keycloak:8080/...`）；留空时 discovery 由 `Authority` 推导。
+
+Keycloak 客户端为公共客户端，启用 Standard Flow + PKCE S256，并需把控制台源（开发环境如 `http://localhost:3000/*`，Docker 环境如 `http://<控制台主机>:5080/*`）登记为 redirect URI 与 web origin，同时在 **Valid post logout redirect URIs** 中登记同一控制台源（如 `http://localhost:3000/*` 与 `http://<控制台主机>:5080/*`）。控制台注销时总会发送 `post_logout_redirect_uri`，未登记时注销后会落到 Keycloak 的错误页。仓库内置的本地 realm（`deploy/keycloak/opensandbox-realm.json`）已为 3000 与 5080 端口登记上述三类地址。
 
 ### API
 
@@ -250,18 +281,33 @@ npm run dev
 ### Docker
 
 ```bash
-# OpenSandbox 相关配置默认即可运行：compose 会同时启动 web（localhost:5080）与内置 opensandbox-server（127.0.0.1:8090）。
-# AUTH_AUTHORITY 为必填：只有示例 .env 提供了项目共享的开发 realm。
+# 本地快速启动：web（localhost:5080）、opensandbox-server（127.0.0.1:8090）与 Keycloak（localhost:8081）。
 cp .env.example .env
-docker compose up -d
+# 在 .env 中设置 KEYCLOAK_ADMIN_PASSWORD 与 KEYCLOAK_DB_PASSWORD；可按需修改 deploy/keycloak/opensandbox-realm.json 中的开发用户密码。
+docker compose up -d --build
 ```
 
+控制台要求 Keycloak 登录。内置 realm 提供以下本地开发用户，密码均为 `change-me-local`（仅用于本地开发：共享部署前必须修改密码）：
+
+| 用户 | 客户端角色 |
+|------|-----------|
+| `sandbox-admin` | `sandbox:admin` |
+| `sandbox-viewer` | `sandbox:viewer` |
+| `volume-admin` | `volume:admin` |
+| `volume-viewer` | `volume:viewer` |
+
+`volume-admin` 与 `volume-viewer` 有意不授予 sandbox 角色，用于验证无权限页面。
+
+- 控制台地址为 `http://localhost:5080`；Keycloak 管理控制台为 `http://localhost:8081`（使用 `.env` 中的 `KEYCLOAK_ADMIN_USER` / `KEYCLOAK_ADMIN_PASSWORD` 登录）。
+- `deploy/keycloak/opensandbox-realm.json` 中的 realm 仅在首次启动、Keycloak Postgres 卷为空时导入。之后修改 realm JSON 不会重新导入，需删除该卷后重启。Keycloak 管理员引导密码同样只在首次启动时生效。警告：`docker compose down -v` 会销毁**所有** compose 卷，包括 Keycloak 数据库。
+- `opensandbox-web` 通过 compose 网络访问 Keycloak：`Auth__Authority` 保持浏览器可见的 `http://localhost:8081/realms/opensandbox`，`Auth__MetadataAddress` 默认使用 `http://keycloak:8080/realms/opensandbox/.well-known/openid-configuration` 进行容器内 discovery/JWKS。若修改 `KEYCLOAK_PORT`，需同步修改 `AUTH_AUTHORITY`。
+- `opensandbox-web` 启动时不依赖 Keycloak：即使 Keycloak 未就绪，API 也能启动，登录会在 Keycloak 就绪后恢复。
 - `opensandbox-web` 通过 compose 网络访问 `opensandbox-server`，OpenSandbox 相关默认无需修改 `.env`；仅当连接外部 OpenSandbox 平台时才设置 `OPENSANDBOX_DOMAIN` / `OPENSANDBOX_API_KEY`。
-- `AUTH_AUTHORITY` 为必填（缺少时 `docker compose` 立即失败）。示例 `.env` 指向项目共享的开发 realm `https://dev-passport.ai4c.cn/realms/ai4cbrain`，仅用于开发；生产环境必须使用自己的 realm，并把控制台源同时登记为 redirect URI 与 post logout redirect URI。
+- 生产环境必须使用自己的 realm，把控制台源同时登记为 redirect URI、web origin 与 post logout redirect URI，并设置 `AUTH_REQUIRE_HTTPS_METADATA=true`。如需改用外部 realm，将 `AUTH_AUTHORITY`（以及 discovery 使用不同地址时的 `AUTH_METADATA_ADDRESS`）指向该 realm。
 - `opensandbox-server` 挂载宿主机 `/var/run/docker.sock` 以创建沙箱容器（上游设计的固有行为），因此它能看到并清理宿主机上带 OpenSandbox 标签的过期沙箱容器；8090 仅绑定 127.0.0.1。
 - 首次创建沙箱前建议预拉运行时镜像 `opensandbox/execd:v1.1.0` 与 `opensandbox/egress:v1.1.7`：冷拉可能超过后端默认 30s 请求超时（可在 .env 中调大 OPENSANDBOX_REQUEST_TIMEOUT_SECONDS）。
 - 修改 `docker-compose.yml` 内联 server 配置后，需 `docker compose up -d --force-recreate opensandbox-server` 才会生效。
-- 控制台现在要求 Keycloak 登录。对外开放 5080 前，先在 `opensandbox-web` 客户端登记控制台 redirect URI、web origin 与 post logout redirect URI；即使绕过界面，API 也会拒绝匿名请求。
+- 本地 realm 已为 3000 与 5080 端口登记控制台 redirect URI、web origin 与 post logout redirect URI；替换 realm 时，对外开放 5080 前需重新登记。即使绕过界面，API 也会拒绝匿名请求。
 
 ### 测试
 
