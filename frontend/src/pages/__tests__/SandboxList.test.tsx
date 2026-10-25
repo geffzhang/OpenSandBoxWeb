@@ -5,6 +5,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { App as AntApp, ConfigProvider } from 'antd'
 import SandboxList from '../SandboxList'
 
+vi.mock('@/auth/AuthContext', () => ({
+  useAuth: () => ({
+    me: { subject: 'user-test-admin', username: 'tester', roles: ['sandbox:admin'] },
+    can: () => true,
+  }),
+}))
+
 vi.mock('@/api/sandbox', () => ({
   sandboxApi: {
     list: vi.fn().mockResolvedValue({

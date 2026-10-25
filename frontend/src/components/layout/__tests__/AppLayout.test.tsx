@@ -1,8 +1,15 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { App as AntApp, ConfigProvider } from 'antd'
 import AppLayout from '../AppLayout'
+
+vi.mock('@/auth/AuthContext', () => ({
+  useAuth: () => ({
+    me: { subject: 'user-test-admin', username: 'tester', roles: ['sandbox:admin'] },
+    can: () => true,
+  }),
+}))
 
 describe('AppLayout', () => {
   it('renders all navigation items and page content', () => {
