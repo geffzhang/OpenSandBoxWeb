@@ -1,7 +1,6 @@
 using System.Globalization;
 using Microsoft.Extensions.Options;
 using OpenSandbox.Config;
-using OpenSandbox.Core;
 using OpenSandbox.Web.Contracts;
 using Models = OpenSandbox.Models;
 
@@ -44,6 +43,8 @@ public sealed class SandboxGateway : ISandboxGateway, IAsyncDisposable
             Metadata = sdkRequest.Metadata,
             NetworkPolicy = sdkRequest.NetworkPolicy,
             Volumes = sdkRequest.Volumes,
+            // SandboxCreateOptions.Extensions takes the raw string dictionary while the
+            // low-level SDK model requires IReadOnlyDictionary<string, object>.
             Extensions = request.Extensions,
             SkipHealthCheck = true,
         }, ct);
@@ -81,7 +82,7 @@ public sealed class SandboxGateway : ISandboxGateway, IAsyncDisposable
                 pagination?.PageSize ?? pageSize,
                 pagination?.TotalItems ?? result.Items.Count,
                 pagination?.TotalPages ?? 1,
-                pagination?.HasNextPage ?? false));
+                pagination?.HasNextPage ?? (result.Items.Count == pageSize)));
     }
 
     public async Task<SandboxDto> GetAsync(string id, CancellationToken ct = default)
@@ -98,15 +99,11 @@ public sealed class SandboxGateway : ISandboxGateway, IAsyncDisposable
 
     public async Task<RenewExpirationResponse> RenewExpirationAsync(string id, RenewExpirationRequest request, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(request.ExpiresAt))
-            throw new InvalidArgumentException("expiresAt is required", null);
-        if (!DateTimeOffset.TryParse(request.ExpiresAt, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var expiresAt))
-            throw new InvalidArgumentException("expiresAt must be an ISO 8601 timestamp", null);
-
         // The public renew API accepts a timeout in seconds, so the absolute expiry
         // from the request is converted and echoed back in the response.
-        var remainingSeconds = Math.Clamp(Math.Ceiling((expiresAt - DateTimeOffset.UtcNow).TotalSeconds), 0, int.MaxValue);
-        await Manager.RenewSandboxAsync(id, (int)remainingSeconds, ct);
+        var timeoutSeconds = SandboxMapper.ExpiresAtToSeconds(request.ExpiresAt, DateTimeOffset.UtcNow);
+        var expiresAt = DateTimeOffset.Parse(request.ExpiresAt!, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+        await Manager.RenewSandboxAsync(id, timeoutSeconds, ct);
         return new RenewExpirationResponse(expiresAt.UtcDateTime);
     }
 
