@@ -12,7 +12,10 @@ import type {
 
 export const sandboxApi = {
   async create(data: CreateSandboxRequest): Promise<CreateSandboxResponse> {
-    const response = await apiClient.post<CreateSandboxResponse>('/sandboxes', data)
+    // 服务端创建时可能拉取执行器/出口镜像，冷拉可超过默认 30s；放宽到 120s。
+    const response = await apiClient.post<CreateSandboxResponse>('/sandboxes', data, {
+      timeout: 120000,
+    })
     return response.data
   },
 
