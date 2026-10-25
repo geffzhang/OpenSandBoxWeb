@@ -66,9 +66,10 @@ services:
       OpenSandbox__Domain: ${OPENSANDBOX_DOMAIN:-http://opensandbox-server:8090}
       OpenSandbox__ApiKey: ${OPENSANDBOX_API_KEY:-}
       OpenSandbox__RequestTimeoutSeconds: ${OPENSANDBOX_REQUEST_TIMEOUT_SECONDS:-30}
-      Auth__Authority: ${AUTH_AUTHORITY:?AUTH_AUTHORITY is required}
+      Auth__Authority: ${AUTH_AUTHORITY:-http://localhost:8081/realms/opensandbox}
+      Auth__MetadataAddress: ${AUTH_METADATA_ADDRESS:-http://keycloak:8080/realms/opensandbox/.well-known/openid-configuration}
       Auth__ClientId: ${AUTH_CLIENT_ID:-opensandbox-web}
-      Auth__RequireHttpsMetadata: ${AUTH_REQUIRE_HTTPS_METADATA:-true}
+      Auth__RequireHttpsMetadata: ${AUTH_REQUIRE_HTTPS_METADATA:-false}
     depends_on:
       - opensandbox-server
     networks:
@@ -77,6 +78,55 @@ services:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
+  keycloak-postgres:
+    image: postgres:16-alpine
+    networks:
+      - opensandbox-net
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?Set KEYCLOAK_DB_PASSWORD in .env}
+    volumes:
+      - opensandbox-keycloak-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7.2
+    command: start --import-realm --health-enabled=true
+    networks:
+      - opensandbox-net
+    environment:
+      KC_DB: postgres
+      KC_DB_URL_HOST: keycloak-postgres
+      KC_DB_URL_DATABASE: keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USER:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?Set KEYCLOAK_ADMIN_PASSWORD in .env}
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME_STRICT: "false"
+    volumes:
+      - ./deploy/keycloak/opensandbox-realm.json:/opt/keycloak/data/import/opensandbox-realm.json:ro
+    ports:
+      - "${KEYCLOAK_PORT:-8081}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.0\\r\\nHost: 127.0.0.1\\r\\n\\r\\n' >&3 && grep -q '\"status\"[[:space:]]*:[[:space:]]*\"UP\"' <&3 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+    depends_on:
+      keycloak-postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
 networks:
   opensandbox-net:
     driver: bridge
+
+volumes:
+  opensandbox-keycloak-postgres:
