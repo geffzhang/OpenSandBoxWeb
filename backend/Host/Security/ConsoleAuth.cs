@@ -18,17 +18,24 @@ public static class ConsoleAuth
             throw new InvalidOperationException("缺少配置 Auth:ClientId（控制台 OIDC 客户端 ID）");
 
         options.Authority = options.Authority.TrimEnd('/');
+        options.MetadataAddress = string.IsNullOrWhiteSpace(options.MetadataAddress)
+            ? null
+            : options.MetadataAddress.Trim();
 
         services.Configure<ConsoleAuthOptions>(configured =>
         {
             configured.Authority = options.Authority;
             configured.ClientId = options.ClientId;
             configured.RequireHttpsMetadata = options.RequireHttpsMetadata;
+            configured.MetadataAddress = options.MetadataAddress;
         });
 
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(jwt =>
         {
             jwt.Authority = options.Authority;
+            // 容器内 discovery/JWKS 可走内部地址；iss 校验仍使用浏览器可见的 Authority。
+            if (!string.IsNullOrEmpty(options.MetadataAddress))
+                jwt.MetadataAddress = options.MetadataAddress;
             jwt.RequireHttpsMetadata = options.RequireHttpsMetadata;
             jwt.MapInboundClaims = false;
             jwt.TokenValidationParameters = new TokenValidationParameters
