@@ -7,6 +7,7 @@ public static class GatewayRegistration
     public static IServiceCollection AddOpenSandbox(this IServiceCollection services, IConfiguration configuration)
     {
         services.Configure<OpenSandboxOptions>(configuration.GetSection(OpenSandboxOptions.SectionName));
+        services.AddSingleton<ISandboxGateway, SandboxGateway>();
         return services;
     }
 }
