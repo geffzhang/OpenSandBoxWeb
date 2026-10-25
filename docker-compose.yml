@@ -66,6 +66,9 @@ services:
       OpenSandbox__Domain: ${OPENSANDBOX_DOMAIN:-http://opensandbox-server:8090}
       OpenSandbox__ApiKey: ${OPENSANDBOX_API_KEY:-}
       OpenSandbox__RequestTimeoutSeconds: ${OPENSANDBOX_REQUEST_TIMEOUT_SECONDS:-30}
+      Auth__Authority: ${AUTH_AUTHORITY:?AUTH_AUTHORITY is required}
+      Auth__ClientId: ${AUTH_CLIENT_ID:-opensandbox-web}
+      Auth__RequireHttpsMetadata: ${AUTH_REQUIRE_HTTPS_METADATA:-true}
     depends_on:
       - opensandbox-server
     networks:
