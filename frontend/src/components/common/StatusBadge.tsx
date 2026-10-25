@@ -1,15 +1,16 @@
 import { Badge } from 'antd'
 
 const COLORS: Record<string, string> = {
+  Creating: 'blue',
   Running: 'green',
-  Paused: 'orange',
-  Pending: 'blue',
   Pausing: 'cyan',
-  Stopping: 'gold',
-  Terminated: 'default',
-  Failed: 'red',
+  Paused: 'orange',
+  Resuming: 'geekblue',
+  Deleting: 'gold',
+  Deleted: '#bfbfbf',
+  Error: 'red',
 }
 
 export default function StatusBadge({ state }: { state: string }) {
-  return <Badge color={COLORS[state] ?? 'default'} text={state} />
+  return <Badge color={COLORS[state] ?? '#bfbfbf'} text={state} />
 }
