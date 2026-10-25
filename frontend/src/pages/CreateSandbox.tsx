@@ -47,40 +47,45 @@ export default function CreateSandbox() {
         .filter(([, value]) => value.trim()),
     )
     const env = (values.env ?? [])
-      .filter((kv) => kv.key.trim())
+      .filter((kv) => (kv.key ?? '').trim())
       .reduce<Record<string, string>>((acc, kv) => {
-        acc[kv.key.trim()] = kv.value ?? ''
+        acc[(kv.key ?? '').trim()] = kv.value ?? ''
         return acc
       }, {})
     const request: CreateSandboxRequest = {
       image: {
         uri: values.imageUri.trim(),
-        ...(values.imageUser || values.imagePassword
-          ? { auth: { username: values.imageUser ?? '', password: values.imagePassword ?? '' } }
+        ...(values.imageUser?.trim() || values.imagePassword
+          ? {
+              auth: {
+                username: values.imageUser?.trim() ?? '',
+                password: values.imagePassword ?? '',
+              },
+            }
           : {}),
       },
       entrypoint: values.entrypoint ?? [],
       resourceLimits,
       timeout: values.timeout ?? null,
       env: Object.keys(env).length ? env : undefined,
-      metadata: values.name ? { name: values.name } : undefined,
+      metadata: values.name?.trim() ? { name: values.name.trim() } : undefined,
       networkPolicy:
         values.defaultAction || (values.egress ?? []).length
           ? {
               defaultAction: values.defaultAction,
               egress: (values.egress ?? [])
-                .filter((rule) => rule.target.trim())
+                .filter((rule) => (rule.target ?? '').trim())
                 .map<NetworkRule>((rule) => ({
                   action: rule.action,
-                  target: rule.target.trim(),
+                  target: (rule.target ?? '').trim(),
                 })),
             }
           : undefined,
       volumes: (values.volumes ?? [])
-        .filter((v) => v.name.trim() && v.mountPath.trim())
+        .filter((v) => (v.name ?? '').trim() && (v.mountPath ?? '').trim())
         .map<VolumeSpec>((v) => ({
-          name: v.name.trim(),
-          mountPath: v.mountPath.trim(),
+          name: (v.name ?? '').trim(),
+          mountPath: (v.mountPath ?? '').trim(),
           hostPath: v.hostPath?.trim() || undefined,
         })),
     }
@@ -179,7 +184,7 @@ export default function CreateSandbox() {
           rules={[
             {
               validator: (_, value: number | undefined) => {
-                const error = validateTimeout(value)
+                const error = validateTimeout(value ?? undefined)
                 return error ? Promise.reject(new Error(error)) : Promise.resolve()
               },
             },
