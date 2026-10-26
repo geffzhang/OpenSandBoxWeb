@@ -6,16 +6,17 @@ namespace OpenSandbox.Web.Infrastructure.Volumes;
 
 public sealed class VolumeListQuery
 {
-    public int Page { get; set; } = 1;
-    public int PageSize { get; set; } = 20;
+    // 可空值/引用类型才会被 [AsParameters] 视为可选；默认值在 ListAsync 中应用。
+    public int? Page { get; set; }
+    public int? PageSize { get; set; }
     public string? Namespace { get; set; }
     public string? Tenant { get; set; }
     public string? Classification { get; set; }
     public string? Lifecycle { get; set; }
     public bool? Mounted { get; set; }
     public string? Q { get; set; }
-    public string Sort { get; set; } = "namespace";
-    public string Order { get; set; } = "asc";
+    public string? Sort { get; set; }
+    public string? Order { get; set; }
 }
 
 public sealed class VolumeQueries(VolumeDbContext db)
@@ -81,8 +82,8 @@ public sealed class VolumeQueries(VolumeDbContext db)
                 Contains(item.TenantName, term));
         }
 
-        var page = Math.Max(1, query.Page);
-        var pageSize = Math.Clamp(query.PageSize, 1, MaxPageSize);
+        var page = Math.Max(1, query.Page ?? 1);
+        var pageSize = Math.Clamp(query.PageSize ?? 20, 1, MaxPageSize);
         var list = filtered.ToList();
         var totalItems = list.Count;
         var totalPages = totalItems == 0
