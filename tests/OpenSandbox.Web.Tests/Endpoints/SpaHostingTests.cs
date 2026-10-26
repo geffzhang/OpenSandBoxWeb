@@ -63,18 +63,19 @@ public sealed class SpaHostingTests : IDisposable
     }
 
     [Fact]
-    public async Task UnknownTenantApiPath_ReturnsJson404()
+    public async Task UnknownTenantApiPath_ReturnsJson401WithoutKey()
     {
         using var client = _factory.CreateClient();
 
         var response = await client.GetAsync("/api/v1/tenant/whatever");
 
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        // 租户前缀由 TenantApiKeyMiddleware 独占：无 Key 必须在 SPA fallback 之前返回 JSON 401。
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.Equal("application/json", response.Content.Headers.ContentType?.MediaType);
         var body = await response.Content.ReadFromJsonAsync<FallbackErrorBody>();
         Assert.NotNull(body);
-        Assert.Equal("not_found", body.Code);
-        Assert.Equal("接口不存在", body.Message);
+        Assert.Equal("unauthorized", body.Code);
+        Assert.Equal("缺少或无效的租户 API Key", body.Message);
     }
 
     [Fact]
