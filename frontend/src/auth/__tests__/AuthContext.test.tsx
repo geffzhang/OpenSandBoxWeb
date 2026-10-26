@@ -32,15 +32,19 @@ describe('AuthProvider', () => {
   it('shows the no-role message when the account has no console roles', async () => {
     renderAuth([])
 
-    expect(
-      await screen.findByText(/没有 sandbox:viewer 或 sandbox:admin 角色/),
-    ).toBeInTheDocument()
+    expect(await screen.findByText(/没有 sandbox 或 volume 角色/)).toBeInTheDocument()
   })
 
-  it('shows the volume-only variant for volume roles', async () => {
+  it('renders children for volume-only accounts', async () => {
     renderAuth(['volume:viewer'])
 
-    expect(await screen.findByText(/只有卷角色/)).toBeInTheDocument()
+    expect(await screen.findByText('控制台内容')).toBeInTheDocument()
+  })
+
+  it('renders children for volume admins', async () => {
+    renderAuth(['volume:admin'])
+
+    expect(await screen.findByText('控制台内容')).toBeInTheDocument()
   })
 
   it('renders children for sandbox viewers', async () => {
