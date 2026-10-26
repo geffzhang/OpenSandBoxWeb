@@ -1,3 +1,5 @@
+using System.Data.Common;
+using Microsoft.EntityFrameworkCore;
 using OpenSandbox.Web.Contracts;
 using OpenSandbox.Web.Infrastructure.Volumes;
 
@@ -16,6 +18,14 @@ public sealed class VolumeExceptionMiddleware(
         catch (VolumeDependencyException exception)
         {
             await WriteAsync(context, 503, "dependency_unavailable", exception.Message);
+        }
+        catch (DbUpdateException)
+        {
+            await WriteAsync(context, 503, "dependency_unavailable", "数据库暂不可用");
+        }
+        catch (DbException)
+        {
+            await WriteAsync(context, 503, "dependency_unavailable", "数据库暂不可用");
         }
         catch (VolumeUnauthorizedException exception)
         {

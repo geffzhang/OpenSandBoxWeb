@@ -62,12 +62,14 @@ public sealed class TenantServiceTests
     }
 
     [Fact]
-    public async Task Update_ReplacesNamespacesWithoutDuplicatingKeys()
+    public async Task Update_ReplacesNamespacesAndKeepsKeys()
     {
         using var test = new TestDb();
         var service = Service(test);
         await service.CreateAsync(
             new CreateTenantRequest("team-a", "Team A", ["ns-a", "ns-b"]), CancellationToken.None);
+        var key = await service.CreateKeyAsync(
+            "team-a", new CreateTenantKeyRequest("ci"), CancellationToken.None);
 
         var updated = await service.UpdateAsync(
             "team-a", new UpdateTenantRequest("Team A2", "active", ["ns-b", "ns-c"]),
@@ -76,6 +78,7 @@ public sealed class TenantServiceTests
         Assert.Equal("Team A2", updated.DisplayName);
         Assert.Equal(["ns-b", "ns-c"], updated.Namespaces.OrderBy(x => x));
         Assert.Equal(2, await test.Db.TenantNamespaces.CountAsync(n => n.TenantId == "team-a"));
+        Assert.True(await test.Db.TenantApiKeys.AnyAsync(k => k.Id == key.Id));
     }
 
     [Fact]
@@ -105,7 +108,22 @@ public sealed class TenantServiceTests
         Assert.DoesNotContain(created.Key, Convert.ToBase64String(stored.KeyHash));
 
         var listed = await service.ListKeysAsync("goodcrew", CancellationToken.None);
-        Assert.DoesNotContain(created.Key, listed[0].Prefix);
+        Assert.Equal(created.Key[..8], listed[0].Prefix);
+    }
+
+    [Fact]
+    public async Task ListKeys_NewestFirst()
+    {
+        using var test = new TestDb();
+        var first = await new TenantService(test.Db, new FixedTimeProvider(Now)).CreateKeyAsync(
+            "goodcrew", new CreateTenantKeyRequest("first"), CancellationToken.None);
+        var second = await new TenantService(test.Db, new FixedTimeProvider(Now.AddMinutes(1)))
+            .CreateKeyAsync("goodcrew", new CreateTenantKeyRequest("second"), CancellationToken.None);
+
+        var listed = await Service(test).ListKeysAsync("goodcrew", CancellationToken.None);
+
+        Assert.Equal(second.Id, listed[0].Id);
+        Assert.Equal(first.Id, listed[1].Id);
     }
 
     [Fact]
