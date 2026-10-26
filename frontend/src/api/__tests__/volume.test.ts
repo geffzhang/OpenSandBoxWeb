@@ -13,6 +13,16 @@ describe('volumeApi', () => {
     expect(get).toHaveBeenCalledWith('/volumes/ns%20a/pvc%2F1')
   })
 
+  it('allows 120s for scans', async () => {
+    const post = vi
+      .spyOn(apiClient, 'post')
+      .mockResolvedValue({ data: { scanId: 'scan-1' } })
+
+    await volumeApi.scan()
+
+    expect(post).toHaveBeenCalledWith('/volumes/scan', undefined, { timeout: 120000 })
+  })
+
   it('allows 120s for imports', async () => {
     const post = vi
       .spyOn(apiClient, 'post')

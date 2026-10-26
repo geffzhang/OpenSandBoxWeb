@@ -55,7 +55,7 @@ export const volumeApi = {
 
   scan: () =>
     apiClient
-      .post<VolumeScanResponse>('/volumes/scan')
+      .post<VolumeScanResponse>('/volumes/scan', undefined, { timeout: 120000 })
       .then((response) => response.data),
 
   report: () =>
