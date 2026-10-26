@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { App, Card, Descriptions, Divider, Select, Typography } from 'antd'
+import { useAuth } from '@/auth/AuthContext'
+import { resolveAuthConfig } from '@/auth/authModel'
 import { STORAGE_KEY_REFRESH_INTERVAL } from '@/utils/constants'
 
 const INTERVAL_OPTIONS = [
@@ -20,6 +22,14 @@ export default function Settings() {
     message.success('设置已保存')
   }
 
+  const { me } = useAuth()
+  let authConfig: { authority: string; clientId: string } | null = null
+  try {
+    authConfig = resolveAuthConfig()
+  } catch {
+    authConfig = null
+  }
+
   return (
     <Card title="设置" style={{ maxWidth: 640 }}>
       <Typography.Title level={5}>刷新间隔</Typography.Title>
@@ -35,6 +45,21 @@ export default function Settings() {
         <Descriptions.Item label="管理 API">/api/v1（由后端服务托管）</Descriptions.Item>
         <Descriptions.Item label="指标流">
           /api/v1/sandboxes/:id/metrics/watch（SSE）
+        </Descriptions.Item>
+      </Descriptions>
+
+      <Divider />
+
+      <Typography.Title level={5}>当前账号</Typography.Title>
+      <Descriptions column={1} bordered size="small">
+        <Descriptions.Item label="用户名">{me.username}</Descriptions.Item>
+        <Descriptions.Item label="Subject">{me.subject}</Descriptions.Item>
+        <Descriptions.Item label="角色">{me.roles.join('、') || '无'}</Descriptions.Item>
+        <Descriptions.Item label="Keycloak Realm">
+          {authConfig?.authority ?? '未配置'}
+        </Descriptions.Item>
+        <Descriptions.Item label="客户端 ID">
+          {authConfig?.clientId ?? '未配置'}
         </Descriptions.Item>
       </Descriptions>
 

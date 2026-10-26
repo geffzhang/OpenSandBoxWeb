@@ -5,6 +5,7 @@ import type { TableProps } from 'antd'
 import { DeleteOutlined, ReloadOutlined } from '@ant-design/icons'
 import { sandboxApi } from '@/api/sandbox'
 import type { Sandbox } from '@/api/types'
+import { useAuth } from '@/auth/AuthContext'
 import StatusBadge from '@/components/common/StatusBadge'
 import { usePolling } from '@/hooks/usePolling'
 import { formatTime } from '@/utils/format'
@@ -24,6 +25,8 @@ export default function SandboxList() {
   const [states, setStates] = useState<string[]>([])
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<Key[]>([])
+  const { can } = useAuth()
+  const canWrite = can('sandbox:admin')
 
   const refreshInterval =
     Number(localStorage.getItem(STORAGE_KEY_REFRESH_INTERVAL)) || LIST_REFRESH_INTERVAL_MS
@@ -97,12 +100,14 @@ export default function SandboxList() {
           <Button size="small" onClick={() => navigate(`/sandboxes/${record.id}`)}>
             详情
           </Button>
-          <Button
-            size="small"
-            danger
-            icon={<DeleteOutlined />}
-            onClick={() => confirmDelete([record.id])}
-          />
+          {canWrite && (
+            <Button
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() => confirmDelete([record.id])}
+            />
+          )}
         </Space>
       ),
     },
@@ -139,14 +144,16 @@ export default function SandboxList() {
           <Button icon={<ReloadOutlined />} loading={isFetching} onClick={() => refetch()}>
             刷新
           </Button>
-          <Button
-            danger
-            icon={<DeleteOutlined />}
-            disabled={selected.length === 0}
-            onClick={() => confirmDelete(selected.map(String))}
-          >
-            批量删除
-          </Button>
+          {canWrite && (
+            <Button
+              danger
+              icon={<DeleteOutlined />}
+              disabled={selected.length === 0}
+              onClick={() => confirmDelete(selected.map(String))}
+            >
+              批量删除
+            </Button>
+          )}
         </Space>
       }
     >
@@ -155,7 +162,9 @@ export default function SandboxList() {
         columns={columns}
         dataSource={filtered}
         loading={isFetching}
-        rowSelection={{ selectedRowKeys: selected, onChange: setSelected }}
+        rowSelection={
+          canWrite ? { selectedRowKeys: selected, onChange: setSelected } : undefined
+        }
         pagination={{
           current: page,
           pageSize,

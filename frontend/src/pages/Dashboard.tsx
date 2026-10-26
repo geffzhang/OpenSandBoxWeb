@@ -4,6 +4,7 @@ import type { TableProps } from 'antd'
 import { PlusOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { sandboxApi } from '@/api/sandbox'
 import type { Sandbox } from '@/api/types'
+import { useAuth } from '@/auth/AuthContext'
 import StatusBadge from '@/components/common/StatusBadge'
 import { usePolling } from '@/hooks/usePolling'
 import { formatTime } from '@/utils/format'
@@ -30,6 +31,7 @@ const COLUMNS: TableProps<Sandbox>['columns'] = [
 
 export default function Dashboard() {
   const navigate = useNavigate()
+  const { can } = useAuth()
   const { data } = usePolling(
     ['sandboxes', 'dashboard'],
     () => sandboxApi.list({ page: 1, pageSize: 100 }),
@@ -52,23 +54,25 @@ export default function Dashboard() {
         ))}
       </Row>
 
-      <Card
-        title="快捷操作"
-        extra={
-          <Space>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/create')}>
-              创建沙箱
-            </Button>
-            <Button icon={<ThunderboltOutlined />} onClick={() => navigate('/batch-create')}>
-              批量创建
-            </Button>
-          </Space>
-        }
-      >
-        <Typography.Text type="secondary">
-          通过上方按钮快速创建沙箱，或前往沙箱列表管理已有实例。
-        </Typography.Text>
-      </Card>
+      {can('sandbox:admin') && (
+        <Card
+          title="快捷操作"
+          extra={
+            <Space>
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/create')}>
+                创建沙箱
+              </Button>
+              <Button icon={<ThunderboltOutlined />} onClick={() => navigate('/batch-create')}>
+                批量创建
+              </Button>
+            </Space>
+          }
+        >
+          <Typography.Text type="secondary">
+            通过上方按钮快速创建沙箱，或前往沙箱列表管理已有实例。
+          </Typography.Text>
+        </Card>
+      )}
 
       <Card title="最近创建">
         <Table rowKey="id" columns={COLUMNS} dataSource={recent} pagination={false} size="middle" />

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Metrics } from '@/api/types'
+import { getToken, requireLogin } from '@/auth/auth'
 
 export interface MetricsEvent {
   type: 'connected' | 'metrics' | 'error'
@@ -23,9 +24,15 @@ export function useMetricsStream(
 
     ;(async () => {
       try {
+        const token = await getToken()
         const response = await fetch(`/api/v1/sandboxes/${sandboxId}/metrics/watch`, {
           signal: controller.signal,
+          headers: { Authorization: `Bearer ${token}` },
         })
+        if (response.status === 401) {
+          await requireLogin()
+          return
+        }
         if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`)
         const reader = response.body.getReader()
         const decoder = new TextDecoder()

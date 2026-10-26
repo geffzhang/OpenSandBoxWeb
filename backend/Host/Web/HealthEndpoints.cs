@@ -8,7 +8,7 @@ public static class HealthEndpoints
         {
             status = "ok",
             version = typeof(HealthEndpoints).Assembly.GetName().Version?.ToString() ?? "1.0.0",
-        }));
+        })).AllowAnonymous();
         return app;
     }
 }

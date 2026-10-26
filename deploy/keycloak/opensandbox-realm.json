@@ -1,0 +1,90 @@
+{
+  "realm": "opensandbox",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": false,
+  "clients": [
+    {
+      "clientId": "opensandbox-web",
+      "name": "OpenSandbox Web",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:3000/*",
+        "http://127.0.0.1:3000/*",
+        "http://localhost:5080/*",
+        "http://127.0.0.1:5080/*"
+      ],
+      "webOrigins": [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:5080",
+        "http://127.0.0.1:5080"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:3000/*##http://127.0.0.1:3000/*##http://localhost:5080/*##http://127.0.0.1:5080/*"
+      },
+      "fullScopeAllowed": true
+    }
+  ],
+  "roles": {
+    "client": {
+      "opensandbox-web": [
+        { "name": "sandbox:admin", "description": "Sandbox facet admin (implies viewer)" },
+        { "name": "sandbox:viewer", "description": "Sandbox facet read-only" },
+        { "name": "volume:admin", "description": "Volume facet admin (implies viewer)" },
+        { "name": "volume:viewer", "description": "Volume facet read-only" }
+      ]
+    }
+  },
+  "users": [
+    {
+      "username": "sandbox-admin",
+      "email": "sandbox-admin@example.com",
+      "firstName": "Sandbox",
+      "lastName": "Admin",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "change-me-local", "temporary": false }],
+      "clientRoles": { "opensandbox-web": ["sandbox:admin"] }
+    },
+    {
+      "username": "sandbox-viewer",
+      "email": "sandbox-viewer@example.com",
+      "firstName": "Sandbox",
+      "lastName": "Viewer",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "change-me-local", "temporary": false }],
+      "clientRoles": { "opensandbox-web": ["sandbox:viewer"] }
+    },
+    {
+      "username": "volume-admin",
+      "email": "volume-admin@example.com",
+      "firstName": "Volume",
+      "lastName": "Admin",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "change-me-local", "temporary": false }],
+      "clientRoles": { "opensandbox-web": ["volume:admin"] }
+    },
+    {
+      "username": "volume-viewer",
+      "email": "volume-viewer@example.com",
+      "firstName": "Volume",
+      "lastName": "Viewer",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "change-me-local", "temporary": false }],
+      "clientRoles": { "opensandbox-web": ["volume:viewer"] }
+    }
+  ]
+}

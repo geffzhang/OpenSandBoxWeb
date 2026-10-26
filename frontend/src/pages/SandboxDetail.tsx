@@ -26,6 +26,7 @@ import dayjs from 'dayjs'
 import { sandboxApi } from '@/api/sandbox'
 import { extractErrorMessage } from '@/api/client'
 import type { Metrics } from '@/api/types'
+import { useAuth } from '@/auth/AuthContext'
 import StatusBadge from '@/components/common/StatusBadge'
 import MetricsChart from '@/components/metrics/MetricsChart'
 import { useMetricsStream } from '@/hooks/useMetricsStream'
@@ -54,6 +55,9 @@ export default function SandboxDetail() {
     DETAIL_REFRESH_INTERVAL_MS,
     Boolean(id),
   )
+
+  const { can } = useAuth()
+  const canWrite = can('sandbox:admin')
 
   const isRunning = sandbox?.status.state === 'Running'
 
@@ -139,23 +143,25 @@ export default function SandboxDetail() {
           </Space>
         }
         extra={
-          <Space>
-            {isRunning ? (
-              <Button icon={<PauseCircleOutlined />} onClick={() => runAction('pause', '暂停')}>
-                暂停
+          canWrite ? (
+            <Space>
+              {isRunning ? (
+                <Button icon={<PauseCircleOutlined />} onClick={() => runAction('pause', '暂停')}>
+                  暂停
+                </Button>
+              ) : (
+                <Button icon={<PlayCircleOutlined />} onClick={() => runAction('resume', '恢复')}>
+                  恢复
+                </Button>
+              )}
+              <Button icon={<ClockCircleOutlined />} onClick={() => setRenewOpen(true)}>
+                续期
               </Button>
-            ) : (
-              <Button icon={<PlayCircleOutlined />} onClick={() => runAction('resume', '恢复')}>
-                恢复
+              <Button danger icon={<DeleteOutlined />} onClick={confirmDelete}>
+                删除
               </Button>
-            )}
-            <Button icon={<ClockCircleOutlined />} onClick={() => setRenewOpen(true)}>
-              续期
-            </Button>
-            <Button danger icon={<DeleteOutlined />} onClick={confirmDelete}>
-              删除
-            </Button>
-          </Space>
+            </Space>
+          ) : null
         }
       >
         <Descriptions column={2} bordered size="small">
