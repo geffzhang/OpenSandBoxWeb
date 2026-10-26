@@ -24,9 +24,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   if (isLoading) return <FullPageSpin />
   if (isError || !data) return <AuthFailure error={error} />
 
-  const hasSandboxRole =
-    data.roles.includes('sandbox:admin') || data.roles.includes('sandbox:viewer')
-  if (!hasSandboxRole) return <NoPermission me={data} />
+  if (data.roles.length === 0) return <NoPermission me={data} />
 
   return (
     <AuthContext.Provider
