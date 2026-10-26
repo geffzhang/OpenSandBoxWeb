@@ -29,6 +29,7 @@ import {
 } from '@/utils/volumeLabels'
 
 const DEFAULT_PAGE_SIZE = 20
+const MAX_PAGE_SIZE = 200
 
 const CLASSIFICATION_OPTIONS = Object.keys(CLASSIFICATION_COLORS).map((value) => ({
   value,
@@ -63,9 +64,12 @@ export default function VolumeList() {
   const [selected, setSelected] = useState<VolumeListItem | null>(null)
 
   const page = Math.max(1, Number(params.get('page') ?? '1') || 1)
-  const pageSize = Math.max(
-    1,
-    Number(params.get('pageSize') ?? String(DEFAULT_PAGE_SIZE)) || DEFAULT_PAGE_SIZE,
+  const pageSize = Math.min(
+    MAX_PAGE_SIZE,
+    Math.max(
+      1,
+      Number(params.get('pageSize') ?? String(DEFAULT_PAGE_SIZE)) || DEFAULT_PAGE_SIZE,
+    ),
   )
   const namespace = params.get('namespace') ?? undefined
   const tenant = params.get('tenant') ?? undefined

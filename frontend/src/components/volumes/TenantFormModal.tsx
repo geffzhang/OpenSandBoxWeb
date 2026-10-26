@@ -85,7 +85,7 @@ export default function TenantFormModal({
           rules={[
             { required: true, message: '请输入租户 ID' },
             {
-              pattern: /^[a-z0-9][a-z0-9-]{0,62}$/,
+              pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/,
               message: '小写字母、数字或连字符',
             },
           ]}

@@ -251,6 +251,36 @@ public sealed class VolumeQueriesTests
     }
 
     [Fact]
+    public async Task List_TenantSort_UsesDisplayNameNotTenantId()
+    {
+        using var test = new TestDb();
+        test.Db.Tenants.AddRange(
+            new TenantEntity
+            {
+                Id = "t1", DisplayName = "Zulu", Status = "active",
+                CreatedAt = Now, UpdatedAt = Now,
+            },
+            new TenantEntity
+            {
+                Id = "t2", DisplayName = "Alpha", Status = "active",
+                CreatedAt = Now, UpdatedAt = Now,
+            });
+        test.Db.Volumes.AddRange(
+            Ledger("pvc-t1", tenant: "t1"),
+            Ledger("pvc-t2", tenant: "t2"));
+        await test.Db.SaveChangesAsync();
+        var queries = new VolumeQueries(test.Db);
+
+        var ascending = await queries.ListAsync(
+            new VolumeListQuery { Sort = "tenant", Order = "asc" }, null, CancellationToken.None);
+        var descending = await queries.ListAsync(
+            new VolumeListQuery { Sort = "tenant", Order = "desc" }, null, CancellationToken.None);
+
+        Assert.Equal(["pvc-t2", "pvc-t1"], ascending.Items.Select(item => item.ClaimName));
+        Assert.Equal(["pvc-t1", "pvc-t2"], descending.Items.Select(item => item.ClaimName));
+    }
+
+    [Fact]
     public async Task List_HugePageNumber_ReturnsEmptyPageNotFirstPage()
     {
         using var test = new TestDb();

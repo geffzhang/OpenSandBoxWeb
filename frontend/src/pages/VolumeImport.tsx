@@ -227,7 +227,7 @@ export default function VolumeImport() {
       {parsed && parsed.items.length > 0 && (
         <Card title="预览">
           <Table<VolumeImportItem>
-            rowKey={(row) => `${row.namespace}/${row.claimName}`}
+            rowKey={(row, index) => `${index}-${row.namespace}/${row.claimName}`}
             size="small"
             columns={previewColumns}
             dataSource={parsed.items}
@@ -242,7 +242,7 @@ export default function VolumeImport() {
           title={outcome.response.dryRun ? 'Dry run 结果（未写入）' : '写入结果'}
         >
           <Table<VolumeImportResult>
-            rowKey={(row) => `${row.namespace}/${row.claimName}`}
+            rowKey={(row, index) => `${index}-${row.namespace}/${row.claimName}`}
             size="small"
             columns={resultColumns}
             dataSource={outcome.response.results}

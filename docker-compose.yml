@@ -89,6 +89,10 @@ services:
       Auth__MetadataAddress: ${AUTH_METADATA_ADDRESS:-http://keycloak:8080/realms/opensandbox/.well-known/openid-configuration}
       Auth__ClientId: ${AUTH_CLIENT_ID:-opensandbox-web}
       Auth__RequireHttpsMetadata: ${AUTH_REQUIRE_HTTPS_METADATA:-false}
+      # POSTGRES_PASSWORD is interpolated directly into this Npgsql connection
+      # string: it must be URL/alphanumeric-safe (A-Z a-z 0-9 - _ . ~) with no
+      # ';', quotes or whitespace. A ';' splits the connection string and can
+      # crash-loop the web container during startup migration.
       ConnectionStrings__VolumeManager: "Host=postgres;Port=5432;Database=opensandbox;Username=opensandbox;Password=${POSTGRES_PASSWORD:-opensandbox}"
       VolumeManager__Enabled: ${VOLUME_MANAGER_ENABLED:-true}
     depends_on:

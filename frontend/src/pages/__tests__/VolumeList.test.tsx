@@ -71,7 +71,7 @@ const report: VolumeReport = {
   truncated: false,
 }
 
-function renderPage() {
+function renderPage(initialEntry = '/volumes') {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -79,7 +79,7 @@ function renderPage() {
     <ConfigProvider>
       <AntApp>
         <QueryClientProvider client={queryClient}>
-          <MemoryRouter initialEntries={['/volumes']}>
+          <MemoryRouter initialEntries={[initialEntry]}>
             <Routes>
               <Route path="/volumes" element={<VolumeList />} />
             </Routes>
@@ -117,6 +117,15 @@ describe('VolumeList', () => {
         sort: 'namespace',
         order: 'asc',
       }),
+    )
+  })
+
+  it('clamps an oversized pageSize from the URL to the server maximum', async () => {
+    renderPage('/volumes?pageSize=500')
+
+    await screen.findByText('pvc-1')
+    expect(volumeApi.list).toHaveBeenCalledWith(
+      expect.objectContaining({ page: 1, pageSize: 200 }),
     )
   })
 })
