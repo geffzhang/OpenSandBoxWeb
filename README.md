@@ -52,6 +52,19 @@ Both terminals use the local Keycloak realm described below by default (`backend
 docker compose --env-file .env.example up -d keycloak-postgres keycloak
 ```
 
+For volume governance, also start PostgreSQL:
+
+```bash
+docker compose --env-file .env.example up -d postgres
+```
+
+The volume schema is only created by the startup migration, which requires
+`VolumeManager:Enabled=true` and `MigrateOnStartup=true` (and a connection string).
+Run the backend once with
+`ConnectionStrings__VolumeManager="Host=localhost;Port=5432;Database=opensandbox;Username=opensandbox;Password=opensandbox"`
+and `VolumeManager__Enabled=true` to create it; later runs may set it to `false` when
+no Kubernetes API is available.
+
 ```bash
 # Terminal 1 - backend (http://localhost:5080)
 cd backend
@@ -117,7 +130,11 @@ Volume governance is configured through `ConnectionStrings:VolumeManager` and th
 The scanner needs a ServiceAccount with `namespaces get/list`,
 `persistentvolumeclaims get/list/patch`, and `pods get/list`; apply
 `deploy/volume-manager/rbac.yaml` and label managed namespaces with
-`opensandbox.io/volume-managed=true`. Deletion protection and rollout order are
+`opensandbox.io/volume-managed=true`. The backend workload must also run as that
+identity: set `serviceAccountName: opensandbox-volume-manager` on the backend
+Deployment when running in-cluster, or set `VolumeManager:KubeConfigPath` when
+running out-of-cluster. The `kubectl auth can-i --as=...` checks only validate the
+binding, not the pod's identity. Deletion protection and rollout order are
 documented in `docs/volume-manager-operations.md`; Keycloak setup is in
 `deploy/volume-manager/keycloak-client.md`.
 
@@ -184,7 +201,11 @@ The console requires a Keycloak login. The bundled realm provides these local de
 - The local realm registers the console redirect URIs, web origins and post logout redirect URIs for ports 3000 and 5080; when replacing it, register them before exposing port 5080. The API rejects anonymous requests even if the UI is bypassed.
 - Docker Compose also starts PostgreSQL 17 (`postgres-data` volume). Set
   `POSTGRES_PASSWORD`, `AUTH_AUTHORITY`, and `VOLUME_MANAGER_ENABLED` in `.env`.
-  Containers without Kubernetes API access should set `VOLUME_MANAGER_ENABLED=false`.
+  The schema is migrated only while the module is enabled (`Enabled && MigrateOnStartup`),
+  so start once with `VOLUME_MANAGER_ENABLED=true` (or run `dotnet ef database update` /
+  a migration Job) before disabling scanning. Containers without Kubernetes API access
+  may then set `VOLUME_MANAGER_ENABLED=false`; against a fresh, unmigrated database the
+  volume endpoints return `503 dependency_unavailable`.
 
 ### Testing
 
@@ -255,6 +276,18 @@ OpenSandbox Admin 是 **OpenSandbox** 的现代化 Web 管理控制台——一�
 docker compose --env-file .env.example up -d keycloak-postgres keycloak
 ```
 
+使用卷治理时还需启动 PostgreSQL：
+
+```bash
+docker compose --env-file .env.example up -d postgres
+```
+
+卷治理的 schema 只由启动迁移创建，条件是 `VolumeManager:Enabled=true`、
+`MigrateOnStartup=true` 且配置了连接串。先以
+`ConnectionStrings__VolumeManager="Host=localhost;Port=5432;Database=opensandbox;Username=opensandbox;Password=opensandbox"`
+与 `VolumeManager__Enabled=true` 运行一次后端完成建表；之后在没有 Kubernetes API 的
+环境可改为 `false`。
+
 ```bash
 # 终端 1 - 后端（http://localhost:5080）
 cd backend
@@ -319,7 +352,10 @@ Keycloak 客户端为公共客户端，启用 Standard Flow + PKCE S256，并需
 扫描器需要 ServiceAccount 具备 `namespaces get/list`、
 `persistentvolumeclaims get/list/patch`、`pods get/list`；先应用
 `deploy/volume-manager/rbac.yaml`，再给受管命名空间打上
-`opensandbox.io/volume-managed=true`。删除保护与上线顺序见
+`opensandbox.io/volume-managed=true`。后端工作负载还必须以该 ServiceAccount 运行：
+集群内部署时在 Deployment 上设置 `serviceAccountName: opensandbox-volume-manager`；
+集群外运行时设置 `VolumeManager:KubeConfigPath`。`kubectl auth can-i --as=...` 只验证
+绑定是否生效，不代表 Pod 的实际身份。删除保护与上线顺序见
 `docs/volume-manager-operations.md`，Keycloak 配置见
 `deploy/volume-manager/keycloak-client.md`。
 
@@ -385,8 +421,11 @@ docker compose up -d --build
 - 修改 `docker-compose.yml` 内联 server 配置后，需 `docker compose up -d --force-recreate opensandbox-server` 才会生效。
 - 本地 realm 已为 3000 与 5080 端口登记控制台 redirect URI、web origin 与 post logout redirect URI；替换 realm 时，对外开放 5080 前需重新登记。即使绕过界面，API 也会拒绝匿名请求。
 - Docker Compose 同时启动 PostgreSQL 17（`postgres-data` 持久卷）。在 `.env` 中设置
-  `POSTGRES_PASSWORD`、`AUTH_AUTHORITY`、`VOLUME_MANAGER_ENABLED`。容器无法访问
-  Kubernetes API 时把 `VOLUME_MANAGER_ENABLED` 设为 `false`。
+  `POSTGRES_PASSWORD`、`AUTH_AUTHORITY`、`VOLUME_MANAGER_ENABLED`。schema 只在模块启用时
+  迁移（`Enabled && MigrateOnStartup`），因此需先以 `VOLUME_MANAGER_ENABLED=true` 启动一次
+  （或执行 `dotnet ef database update` / 迁移 Job），之后才可关闭扫描。容器无法访问
+  Kubernetes API 时再把 `VOLUME_MANAGER_ENABLED` 设为 `false`；面对未迁移的全新数据库，
+  卷接口会返回 `503 dependency_unavailable`。
 
 ### 测试
 
