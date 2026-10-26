@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { App as AntApp, ConfigProvider } from 'antd'
+import type { VolumeImportResponse } from '@/api/types'
 import { volumeApi } from '@/api/volume'
 import VolumeImport from '../VolumeImport'
 
@@ -74,5 +75,114 @@ describe('VolumeImport', () => {
 
     expect(screen.getByText(/缺少表头/)).toBeInTheDocument()
     expect(volumeApi.import).not.toHaveBeenCalled()
+  })
+
+  it('enables write after a successful dry-run and sends the dry-run snapshot', async () => {
+    renderPage()
+
+    fireEvent.change(screen.getByPlaceholderText(/粘贴 CSV/), {
+      target: { value: CSV },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '解析预览' }))
+    await screen.findByText('pvc-1')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dry run' }))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: '确认写入' })).toBeEnabled(),
+    )
+
+    vi.mocked(volumeApi.import).mockResolvedValueOnce({
+      dryRun: false,
+      results: [
+        { namespace: 'opensandbox', claimName: 'pvc-1', status: 'registered' },
+      ],
+    })
+    fireEvent.click(screen.getByRole('button', { name: '确认写入' }))
+
+    await waitFor(() =>
+      expect(volumeApi.import).toHaveBeenCalledWith({
+        dryRun: false,
+        items: [expect.objectContaining({ claimName: 'pvc-1' })],
+      }),
+    )
+  })
+
+  it('clears the dry-run result and disables write when the text changes', async () => {
+    renderPage()
+
+    fireEvent.change(screen.getByPlaceholderText(/粘贴 CSV/), {
+      target: { value: CSV },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '解析预览' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Dry run' }))
+
+    expect(await screen.findByText('Dry run 结果（未写入）')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '确认写入' })).toBeEnabled()
+
+    fireEvent.change(screen.getByPlaceholderText(/粘贴 CSV/), {
+      target: { value: `${CSV}\n` },
+    })
+
+    expect(screen.queryByText('Dry run 结果（未写入）')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '确认写入' })).toBeDisabled()
+  })
+
+  it('ignores a stale dry-run response after the text changes', async () => {
+    let resolveDryRun: (value: VolumeImportResponse) => void = () => {}
+    vi.mocked(volumeApi.import).mockImplementationOnce(
+      () =>
+        new Promise<VolumeImportResponse>((resolve) => {
+          resolveDryRun = resolve
+        }),
+    )
+
+    renderPage()
+
+    fireEvent.change(screen.getByPlaceholderText(/粘贴 CSV/), {
+      target: { value: CSV },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '解析预览' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Dry run' }))
+    await waitFor(() => expect(volumeApi.import).toHaveBeenCalledTimes(1))
+
+    fireEvent.change(screen.getByPlaceholderText(/粘贴 CSV/), {
+      target: { value: `${CSV}\nextra,row,claim,employee,9,meta,/data,business,sb-2` },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '解析预览' }))
+
+    await act(async () => {
+      resolveDryRun({
+        dryRun: true,
+        results: [
+          { namespace: 'opensandbox', claimName: 'pvc-1', status: 'would-register' },
+        ],
+      })
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    expect(volumeApi.import).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText('Dry run 结果（未写入）')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '确认写入' })).toBeDisabled()
+  })
+
+  it('clears the previous dry-run result when a new dry-run fails', async () => {
+    renderPage()
+
+    fireEvent.change(screen.getByPlaceholderText(/粘贴 CSV/), {
+      target: { value: CSV },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '解析预览' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Dry run' }))
+
+    expect(await screen.findByText('Dry run 结果（未写入）')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '确认写入' })).toBeEnabled()
+
+    vi.mocked(volumeApi.import).mockRejectedValueOnce(new Error('dry-run failed'))
+    fireEvent.click(screen.getByRole('button', { name: 'Dry run' }))
+
+    await waitFor(() =>
+      expect(screen.queryByText('Dry run 结果（未写入）')).not.toBeInTheDocument(),
+    )
+    expect(screen.getByRole('button', { name: '确认写入' })).toBeDisabled()
   })
 })
