@@ -22,13 +22,14 @@ The repository follows a frontend/backend split: a React SPA and a .NET 10 API t
 - **Batch Operations** - Create multiple sandboxes via JSON import or manual input with progress tracking
 - **Single-process Deployment** - Backend serves the built frontend with SPA fallback
 - **Keycloak SSO** - Console login through Keycloak with separate sandbox and volume admin/viewer roles
+- **Global Volume Governance** - Inventory PVCs across managed namespaces, register tenant ownership, detect label drift, report coverage, import existing volumes, and protect business volumes with Kubernetes admission policies
 
 ### Tech Stack
 
 | Area | Technology |
 |------|------------|
 | Frontend | React 19, TypeScript, Vite, Ant Design 5, TanStack Query, ECharts, axios, dayjs |
-| Backend | .NET 10, ASP.NET Core Minimal APIs, Alibaba.OpenSandbox 1.1.1 |
+| Backend | .NET 10, ASP.NET Core Minimal APIs, Alibaba.OpenSandbox 1.1.1, PostgreSQL 17, KubernetesClient |
 | Tests | xUnit + WebApplicationFactory (backend), Vitest + Testing Library (frontend) |
 
 ### Repository Structure
@@ -94,6 +95,32 @@ The backend refuses to start when `Auth:Authority` or `Auth:ClientId` is missing
 
 The Keycloak client is public, uses Standard Flow with PKCE S256, and must register the console origin (for example `http://localhost:3000/*` in development and `http://<console-host>:5080/*` in Docker) as a redirect URI and web origin. Register the same origin under **Valid post logout redirect URIs** (for example `http://localhost:3000/*` and `http://<console-host>:5080/*`): the console always sends `post_logout_redirect_uri`, and Keycloak shows an error page after logout when that URI is not registered. The bundled local realm (`deploy/keycloak/opensandbox-realm.json`) already registers ports 3000 and 5080 for all three lists.
 
+Volume governance is configured through `ConnectionStrings:VolumeManager` and the
+`VolumeManager` section:
+
+```json
+{
+  "ConnectionStrings": {
+    "VolumeManager": "Host=localhost;Port=5432;Database=opensandbox;Username=opensandbox;Password=..."
+  },
+  "VolumeManager": {
+    "Enabled": true,
+    "ScanInterval": "00:05:00",
+    "ScanOnStartup": true,
+    "ManagedNamespaceSelector": "opensandbox.io/volume-managed=true",
+    "MaxConcurrentNamespaces": 4,
+    "MigrateOnStartup": true
+  }
+}
+```
+
+The scanner needs a ServiceAccount with `namespaces get/list`,
+`persistentvolumeclaims get/list/patch`, and `pods get/list`; apply
+`deploy/volume-manager/rbac.yaml` and label managed namespaces with
+`opensandbox.io/volume-managed=true`. Deletion protection and rollout order are
+documented in `docs/volume-manager-operations.md`; Keycloak setup is in
+`deploy/volume-manager/keycloak-client.md`.
+
 ### API
 
 All endpoints are prefixed with `/api/v1`:
@@ -112,6 +139,16 @@ All endpoints are prefixed with `/api/v1`:
 | `/sandboxes/{id}/endpoints/{port}` | GET | Get sandbox endpoint for a port |
 | `/sandboxes/{id}/metrics` | GET | Metrics snapshot |
 | `/sandboxes/{id}/metrics/watch` | GET | Live metrics over SSE |
+| `/volumes` | GET | Volume inventory with filters, search, sort and pagination |
+| `/volumes/{namespace}/{claimName}` | GET | Volume ledger, observation and event timeline |
+| `/volumes/report` | GET | Coverage, classification counts and violations |
+| `/volumes/scan` | POST | Trigger an inventory scan |
+| `/volumes/import` | POST | Import existing volumes (dry-run by default) |
+| `/volume-tenants` | GET/POST | Tenant list and creation |
+| `/volume-tenants/{id}` | PATCH | Update a tenant |
+| `/volume-tenants/{id}/keys` | GET/POST | List or issue tenant API keys |
+| `/tenant/volumes/register` | POST | Tenant registration (API key auth) |
+| `/tenant/volumes` | GET | Tenant-scoped volume list (API key auth) |
 
 Errors return a uniform body: `{ "code": "...", "message": "..." }`.
 
@@ -145,6 +182,9 @@ The console requires a Keycloak login. The bundled realm provides these local de
 - Pre-pull the runtime images `opensandbox/execd:v1.1.0` and `opensandbox/egress:v1.1.7` before creating the first sandbox: a cold pull may exceed the backend's default 30s request timeout (raise OPENSANDBOX_REQUEST_TIMEOUT_SECONDS in .env).
 - After editing the inline server configuration in `docker-compose.yml`, run `docker compose up -d --force-recreate opensandbox-server` for the change to take effect.
 - The local realm registers the console redirect URIs, web origins and post logout redirect URIs for ports 3000 and 5080; when replacing it, register them before exposing port 5080. The API rejects anonymous requests even if the UI is bypassed.
+- Docker Compose also starts PostgreSQL 17 (`postgres-data` volume). Set
+  `POSTGRES_PASSWORD`, `AUTH_AUTHORITY`, and `VOLUME_MANAGER_ENABLED` in `.env`.
+  Containers without Kubernetes API access should set `VOLUME_MANAGER_ENABLED=false`.
 
 ### Testing
 
@@ -185,13 +225,14 @@ OpenSandbox Admin 是 **OpenSandbox** 的现代化 Web 管理控制台——一�
 - **批量操作** - JSON 导入或手动输入批量创建，带进度显示
 - **单进程部署** - 后端托管前端构建产物并提供 SPA fallback
 - **Keycloak 单点登录** - 控制台通过 Keycloak 登录，沙箱与卷各自区分 admin/viewer 角色
+- **全局卷治理** - 跨受管命名空间盘点 PVC、登记租户归属、检测标签漂移、统计覆盖率、回填存量卷，并用 Kubernetes 准入策略保护业务卷
 
 ### 技术栈
 
 | 领域 | 技术 |
 |------|------|
 | 前端 | React 19、TypeScript、Vite、Ant Design 5、TanStack Query、ECharts、axios、dayjs |
-| 后端 | .NET 10、ASP.NET Core Minimal API、Alibaba.OpenSandbox 1.1.1 |
+| 后端 | .NET 10、ASP.NET Core Minimal API、Alibaba.OpenSandbox 1.1.1、PostgreSQL 17、KubernetesClient |
 | 测试 | xUnit + WebApplicationFactory（后端）、Vitest + Testing Library（前端） |
 
 ### 仓库结构
@@ -257,6 +298,31 @@ npm run dev
 
 Keycloak 客户端为公共客户端，启用 Standard Flow + PKCE S256，并需把控制台源（开发环境如 `http://localhost:3000/*`，Docker 环境如 `http://<控制台主机>:5080/*`）登记为 redirect URI 与 web origin，同时在 **Valid post logout redirect URIs** 中登记同一控制台源（如 `http://localhost:3000/*` 与 `http://<控制台主机>:5080/*`）。控制台注销时总会发送 `post_logout_redirect_uri`，未登记时注销后会落到 Keycloak 的错误页。仓库内置的本地 realm（`deploy/keycloak/opensandbox-realm.json`）已为 3000 与 5080 端口登记上述三类地址。
 
+卷治理使用 `ConnectionStrings:VolumeManager` 与 `VolumeManager` 节：
+
+```json
+{
+  "ConnectionStrings": {
+    "VolumeManager": "Host=localhost;Port=5432;Database=opensandbox;Username=opensandbox;Password=..."
+  },
+  "VolumeManager": {
+    "Enabled": true,
+    "ScanInterval": "00:05:00",
+    "ScanOnStartup": true,
+    "ManagedNamespaceSelector": "opensandbox.io/volume-managed=true",
+    "MaxConcurrentNamespaces": 4,
+    "MigrateOnStartup": true
+  }
+}
+```
+
+扫描器需要 ServiceAccount 具备 `namespaces get/list`、
+`persistentvolumeclaims get/list/patch`、`pods get/list`；先应用
+`deploy/volume-manager/rbac.yaml`，再给受管命名空间打上
+`opensandbox.io/volume-managed=true`。删除保护与上线顺序见
+`docs/volume-manager-operations.md`，Keycloak 配置见
+`deploy/volume-manager/keycloak-client.md`。
+
 ### API
 
 所有端点以 `/api/v1` 为前缀：
@@ -275,6 +341,16 @@ Keycloak 客户端为公共客户端，启用 Standard Flow + PKCE S256，并需
 | `/sandboxes/{id}/endpoints/{port}` | GET | 获取沙箱端口端点 |
 | `/sandboxes/{id}/metrics` | GET | 指标快照 |
 | `/sandboxes/{id}/metrics/watch` | GET | SSE 实时指标 |
+| `/volumes` | GET | 卷列表（筛选、搜索、排序、分页） |
+| `/volumes/{namespace}/{claimName}` | GET | 台账、观测与事件时间线 |
+| `/volumes/report` | GET | 覆盖率、分类统计与违规 |
+| `/volumes/scan` | POST | 触发库存扫描 |
+| `/volumes/import` | POST | 回填导入（默认 dry-run） |
+| `/volume-tenants` | GET/POST | 租户列表与新建 |
+| `/volume-tenants/{id}` | PATCH | 修改租户 |
+| `/volume-tenants/{id}/keys` | GET/POST | 查看或签发租户 Key |
+| `/tenant/volumes/register` | POST | 租户注册（API Key 认证） |
+| `/tenant/volumes` | GET | 租户视角卷列表（API Key 认证） |
 
 错误响应统一为：`{ "code": "...", "message": "..." }`。
 
@@ -308,6 +384,9 @@ docker compose up -d --build
 - 首次创建沙箱前建议预拉运行时镜像 `opensandbox/execd:v1.1.0` 与 `opensandbox/egress:v1.1.7`：冷拉可能超过后端默认 30s 请求超时（可在 .env 中调大 OPENSANDBOX_REQUEST_TIMEOUT_SECONDS）。
 - 修改 `docker-compose.yml` 内联 server 配置后，需 `docker compose up -d --force-recreate opensandbox-server` 才会生效。
 - 本地 realm 已为 3000 与 5080 端口登记控制台 redirect URI、web origin 与 post logout redirect URI；替换 realm 时，对外开放 5080 前需重新登记。即使绕过界面，API 也会拒绝匿名请求。
+- Docker Compose 同时启动 PostgreSQL 17（`postgres-data` 持久卷）。在 `.env` 中设置
+  `POSTGRES_PASSWORD`、`AUTH_AUTHORITY`、`VOLUME_MANAGER_ENABLED`。容器无法访问
+  Kubernetes API 时把 `VOLUME_MANAGER_ENABLED` 设为 `false`。
 
 ### 测试
 

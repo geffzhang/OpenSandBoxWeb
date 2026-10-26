@@ -39,6 +39,25 @@ configs:
       mode = "direct"
 
 services:
+  postgres:
+    image: postgres:17
+    networks:
+      - opensandbox-net
+    environment:
+      POSTGRES_DB: opensandbox
+      POSTGRES_USER: opensandbox
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-opensandbox}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opensandbox -d opensandbox"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
   opensandbox-server:
     # Includes configurable proxy resolution for this Compose/bridge topology.
     image: opensandbox/server:release-1.1.0
@@ -70,8 +89,13 @@ services:
       Auth__MetadataAddress: ${AUTH_METADATA_ADDRESS:-http://keycloak:8080/realms/opensandbox/.well-known/openid-configuration}
       Auth__ClientId: ${AUTH_CLIENT_ID:-opensandbox-web}
       Auth__RequireHttpsMetadata: ${AUTH_REQUIRE_HTTPS_METADATA:-false}
+      ConnectionStrings__VolumeManager: "Host=postgres;Port=5432;Database=opensandbox;Username=opensandbox;Password=${POSTGRES_PASSWORD:-opensandbox}"
+      VolumeManager__Enabled: ${VOLUME_MANAGER_ENABLED:-true}
     depends_on:
-      - opensandbox-server
+      opensandbox-server:
+        condition: service_started
+      postgres:
+        condition: service_healthy
     networks:
       - opensandbox-net
     extra_hosts:
@@ -130,3 +154,4 @@ networks:
 
 volumes:
   opensandbox-keycloak-postgres:
+  postgres-data:
