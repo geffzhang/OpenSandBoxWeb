@@ -136,7 +136,9 @@ Deployment when running in-cluster, or set `VolumeManager:KubeConfigPath` when
 running out-of-cluster. The `kubectl auth can-i --as=...` checks only validate the
 binding, not the pod's identity. Deletion protection and rollout order are
 documented in `docs/volume-manager-operations.md`; Keycloak setup is in
-`deploy/volume-manager/keycloak-client.md`.
+`deploy/volume-manager/keycloak-client.md`. See the
+[VolumeManager technical guide](docs/volume-manager-guide.md) for the concept
+model, a local walkthrough, API usage and FAQ.
 
 ### API
 
@@ -357,7 +359,8 @@ Keycloak 客户端为公共客户端，启用 Standard Flow + PKCE S256，并需
 集群外运行时设置 `VolumeManager:KubeConfigPath`。`kubectl auth can-i --as=...` 只验证
 绑定是否生效，不代表 Pod 的实际身份。删除保护与上线顺序见
 `docs/volume-manager-operations.md`，Keycloak 配置见
-`deploy/volume-manager/keycloak-client.md`。
+`deploy/volume-manager/keycloak-client.md`。概念模型、本地实操、API 用法与常见问题见
+[VolumeManager 技术文档](docs/volume-manager-guide.md)。
 
 ### API
 
