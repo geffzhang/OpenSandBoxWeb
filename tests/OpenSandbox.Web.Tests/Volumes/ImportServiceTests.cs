@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using OpenSandbox.Web.Contracts;
 using OpenSandbox.Web.Infrastructure.Volumes;
 using OpenSandbox.Web.Infrastructure.Volumes.Persistence;
@@ -25,7 +26,8 @@ public sealed class ImportServiceTests
     }
 
     private static ImportService Service(TestDb test, FakeVolumeKubernetesClient kube) =>
-        new(test.Db, kube, new VolumeLabelWriter(kube), new FixedTimeProvider(Now));
+        new(test.Db, kube, new VolumeLabelWriter(kube), new FixedTimeProvider(Now),
+            NullLogger<ImportService>.Instance);
 
     private static VolumeImportRequest Request(bool? dryRun = null) => new(
         dryRun,
@@ -223,5 +225,79 @@ public sealed class ImportServiceTests
         Assert.Equal("/workspace", volume.MountPath);
         Assert.Equal("business", volume.Lifecycle);
         Assert.Equal("sb-1", volume.LastSandboxId);
+    }
+
+    [Fact]
+    public async Task Import_LabelFailure_OnlyUpdatesOwningResult()
+    {
+        var (test, kube) = await SeedAsync();
+        using var _ = test;
+        kube.FailLabelPatches.Add("pvc-1");
+
+        var response = await Service(test, kube).ImportAsync(
+            new VolumeImportRequest(false,
+            [
+                new VolumeImportItem(
+                    "goodcrew", "opensandbox", "pvc-1", "employee", "3f2a",
+                    "meta", "/workspace", "business", "sb-1"),
+                new VolumeImportItem(
+                    "goodcrew", "opensandbox", "pvc-1", "employee", "3f2a",
+                    "meta", "/workspace", "business", "sb-1"),
+            ]),
+            CancellationToken.None);
+
+        Assert.Equal(RegistrationStatuses.LabelPending, response.Results[0].Status);
+        Assert.Equal("patch failed", response.Results[0].Message);
+        Assert.Equal(RegistrationStatuses.Invalid, response.Results[1].Status);
+        Assert.Equal("重复的导入项", response.Results[1].Message);
+    }
+
+    [Fact]
+    public async Task Import_WriteMode_MissingVolume_ReactivatesWithObservedUid()
+    {
+        var (test, kube) = await SeedAsync();
+        using var _ = test;
+        test.Db.Volumes.Add(new VolumeEntity
+        {
+            Id = Guid.CreateVersion7(), Namespace = "opensandbox", ClaimName = "pvc-1",
+            TenantId = "goodcrew", OwnerKind = "employee", OwnerId = "3f2a",
+            Lifecycle = VolumeLifecycle.Business, RegisteredUid = "uid-old",
+            State = VolumeStates.Missing, StateReason = VolumeStates.Unexpected,
+            MissingSince = Now.AddDays(-2), LabelState = VolumeLabelStates.Applied,
+            ViolationsJson = "[\"lifecycle-mismatch:ephemeral\"]",
+            RegisteredAt = Now.AddDays(-10), UpdatedAt = Now.AddDays(-2),
+        });
+        await test.Db.SaveChangesAsync();
+        kube.Pvcs["opensandbox"].Clear();
+        kube.AddPvc("opensandbox", "pvc-1", uid: "uid-new");
+
+        var response = await Service(test, kube).ImportAsync(
+            Request(dryRun: false), CancellationToken.None);
+
+        Assert.Equal(RegistrationStatuses.Reactivated, response.Results[0].Status);
+        var volume = await test.Db.Volumes.SingleAsync();
+        Assert.Equal(VolumeStates.Active, volume.State);
+        Assert.Equal("uid-new", volume.RegisteredUid);
+        Assert.Null(volume.StateReason);
+        Assert.Null(volume.MissingSince);
+        Assert.Empty(volume.Violations());
+        Assert.Equal(VolumeLabelStates.Applied, volume.LabelState);
+        Assert.True(await test.Db.VolumeEvents.AnyAsync(
+            e => e.Type == VolumeEventTypes.Imported));
+    }
+
+    [Fact]
+    public async Task Import_NamespaceLookupFailure_ThrowsDependencyWithoutInternalText()
+    {
+        var (test, kube) = await SeedAsync();
+        using var _ = test;
+        kube.FailNamespaceLookups.Add("opensandbox");
+
+        var exception = await Assert.ThrowsAsync<VolumeDependencyException>(() =>
+            Service(test, kube).ImportAsync(Request(), CancellationToken.None));
+
+        Assert.Equal("Kubernetes 暂不可用", exception.Message);
+        Assert.DoesNotContain("namespace lookup failed", exception.Message);
+        Assert.Equal(0, await test.Db.Volumes.CountAsync());
     }
 }

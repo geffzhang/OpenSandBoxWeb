@@ -8,7 +8,8 @@ public sealed class ImportService(
     VolumeDbContext db,
     IVolumeKubernetesClient kube,
     VolumeLabelWriter labels,
-    TimeProvider time)
+    TimeProvider time,
+    ILogger<ImportService> logger)
 {
     private const string NullItemMessage = "卷条目为空";
 
@@ -57,7 +58,8 @@ public sealed class ImportService(
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
-                throw new VolumeDependencyException($"Kubernetes 暂不可用: {exception.Message}");
+                logger.LogError(exception, "读取命名空间 {Namespace} 失败", namespaceName);
+                throw new VolumeDependencyException("Kubernetes 暂不可用");
             }
         }
 
@@ -72,7 +74,8 @@ public sealed class ImportService(
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
-                throw new VolumeDependencyException($"Kubernetes 暂不可用: {exception.Message}");
+                logger.LogError(exception, "列出命名空间 {Namespace} 的 PVC 失败", namespaceName);
+                throw new VolumeDependencyException("Kubernetes 暂不可用");
             }
         }
 
@@ -84,7 +87,7 @@ public sealed class ImportService(
             .ToListAsync(ct);
 
         var results = new List<VolumeImportResult>();
-        var pendingPatches = new List<VolumeEntity>();
+        var pendingPatches = new List<(VolumeEntity Volume, int ResultIndex)>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var now = time.GetUtcNow();
 
@@ -174,15 +177,25 @@ public sealed class ImportService(
                     continue;
                 }
 
+                // 与注册 API 同构：缺失/失去受管的台账行在写入模式下恢复为 active。
+                var reactivated =
+                    byClaim.State is VolumeStates.Missing or VolumeStates.Unmanaged;
                 byClaim.Role = VolumeValidation.Text(item.Role, VolumeValidation.RoleMax);
                 byClaim.MountPath = VolumeValidation.Text(item.MountPath, VolumeValidation.MountPathMax);
                 byClaim.LastSandboxId = VolumeValidation.Text(item.SandboxId, VolumeValidation.SandboxIdMax);
+                byClaim.RegisteredUid = pvc.Uid;
+                byClaim.State = VolumeStates.Active;
+                byClaim.StateReason = null;
+                byClaim.MissingSince = null;
+                byClaim.SetViolations([]);
                 byClaim.LabelState = VolumeLabelStates.Pending;
                 byClaim.UpdatedAt = now;
                 AddEvent(byClaim, VolumeEventTypes.Imported, now);
-                pendingPatches.Add(byClaim);
                 results.Add(new VolumeImportResult(
-                    namespaceName, claimName, RegistrationStatuses.Updated, null));
+                    namespaceName, claimName,
+                    reactivated ? RegistrationStatuses.Reactivated : RegistrationStatuses.Updated,
+                    null));
+                pendingPatches.Add((byClaim, results.Count - 1));
                 continue;
             }
 
@@ -231,16 +244,18 @@ public sealed class ImportService(
             db.Volumes.Add(volume);
             existing.Add(volume);
             AddEvent(volume, VolumeEventTypes.Imported, now);
-            pendingPatches.Add(volume);
             results.Add(new VolumeImportResult(
                 namespaceName, claimName, RegistrationStatuses.Registered, null));
+            pendingPatches.Add((volume, results.Count - 1));
         }
 
         if (!dryRun)
         {
             await db.SaveChangesAsync(ct);
 
-            foreach (var volume in pendingPatches.DistinctBy(entity => entity.Id))
+            // 按结果下标回写，避免同 (namespace, claimName) 的无效/冲突项被误改成 label-pending。
+            foreach (var (volume, resultIndex) in pendingPatches
+                         .DistinctBy(entry => entry.Volume.Id))
             {
                 var write = await labels.ApplyAllAsync(volume, ct);
                 if (write.Success)
@@ -250,17 +265,11 @@ public sealed class ImportService(
                     continue;
                 }
 
-                for (var index = 0; index < results.Count; index++)
+                results[resultIndex] = results[resultIndex] with
                 {
-                    if (results[index].Namespace != volume.Namespace ||
-                        results[index].ClaimName != volume.ClaimName)
-                        continue;
-                    results[index] = results[index] with
-                    {
-                        Status = RegistrationStatuses.LabelPending,
-                        Message = write.Error,
-                    };
-                }
+                    Status = RegistrationStatuses.LabelPending,
+                    Message = write.Error,
+                };
                 AddEvent(volume, VolumeEventTypes.LabelPatchFailed, time.GetUtcNow(),
                     write.Error);
             }

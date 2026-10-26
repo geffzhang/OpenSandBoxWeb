@@ -49,9 +49,11 @@ public sealed class VolumeQueriesTests
         string claimName = "pvc-1",
         string uid = "uid-1",
         string? lifecycle = "business",
-        bool mounted = false) => new()
+        bool mounted = false,
+        string namespaceName = "opensandbox",
+        string? tenantLabel = null) => new()
     {
-        Namespace = "opensandbox",
+        Namespace = namespaceName,
         ClaimName = claimName,
         Uid = uid,
         Phase = "Bound",
@@ -67,6 +69,7 @@ public sealed class VolumeQueriesTests
                 [VolumeLabels.Lifecycle] = lifecycle,
             }),
         LifecycleLabel = lifecycle,
+        TenantLabel = tenantLabel,
         FirstSeenAt = Now,
         LastSeenAt = Now,
         LastScanId = lastScanId,
@@ -241,6 +244,75 @@ public sealed class VolumeQueriesTests
         Assert.True(report.Truncated);
         Assert.Equal(200, report.Violations.Count);
         Assert.Equal(0m, report.Coverage.LabeledPercent);
+        Assert.Equal("pvc-000", report.Violations[0].ClaimName);
+        Assert.Equal("pvc-199", report.Violations[199].ClaimName);
+        Assert.DoesNotContain(report.Violations, item => item.ClaimName == "pvc-200");
+        Assert.Equal("未登记租户", Assert.Single(report.ByTenant).Key);
+    }
+
+    [Fact]
+    public async Task List_HugePageNumber_ReturnsEmptyPageNotFirstPage()
+    {
+        using var test = new TestDb();
+        var run = SeedScanRun(test);
+        test.Db.ClusterVolumes.Add(Observation(run.Id));
+        await test.Db.SaveChangesAsync();
+        var queries = new VolumeQueries(test.Db);
+
+        var response = await queries.ListAsync(
+            new VolumeListQuery { Page = int.MaxValue, PageSize = 200 },
+            null, CancellationToken.None);
+
+        Assert.Empty(response.Items);
+        Assert.Equal(1, response.Pagination.TotalItems);
+    }
+
+    [Fact]
+    public async Task List_ForcedTenant_ExcludesObservationOnlyOutsideAssignedNamespaces()
+    {
+        using var test = new TestDb();
+        var run = SeedScanRun(test);
+        test.Db.TenantNamespaces.Add(new TenantNamespaceEntity
+        {
+            Namespace = "opensandbox",
+            TenantId = "goodcrew",
+        });
+        test.Db.ClusterVolumes.Add(Observation(
+            run.Id, "pvc-1", namespaceName: "elsewhere", tenantLabel: "goodcrew"));
+        await test.Db.SaveChangesAsync();
+        var queries = new VolumeQueries(test.Db);
+
+        var tenant = await queries.ListAsync(
+            new VolumeListQuery(), "goodcrew", CancellationToken.None);
+        var admin = await queries.ListAsync(
+            new VolumeListQuery(), null, CancellationToken.None);
+
+        Assert.Empty(tenant.Items);
+        var item = Assert.Single(admin.Items);
+        Assert.Equal("elsewhere", item.Namespace);
+    }
+
+    [Fact]
+    public async Task Report_UnknownTenant_OnlyForObservationOnlyRows()
+    {
+        using var test = new TestDb();
+        var run = SeedScanRun(test);
+        test.Db.Volumes.Add(Ledger());
+        test.Db.ClusterVolumes.AddRange(
+            Observation(run.Id, "pvc-1", tenantLabel: "ghost"),
+            Observation(run.Id, "pvc-2", uid: "uid-2", tenantLabel: "ghost"),
+            Observation(run.Id, "pvc-3", uid: "uid-3", tenantLabel: " "));
+        await test.Db.SaveChangesAsync();
+        var queries = new VolumeQueries(test.Db);
+
+        var report = await queries.ReportAsync(CancellationToken.None);
+
+        var unknown = report.Violations
+            .Where(item => item.Type == "unknown-tenant")
+            .ToArray();
+        var violation = Assert.Single(unknown);
+        Assert.Equal("pvc-2", violation.ClaimName);
+        Assert.Equal("未知租户标签: ghost", violation.Message);
     }
 
     [Fact]

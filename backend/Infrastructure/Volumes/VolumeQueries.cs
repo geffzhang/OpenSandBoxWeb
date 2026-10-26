@@ -38,7 +38,17 @@ public sealed class VolumeQueries(VolumeDbContext db)
         }
 
         if (forcedTenant is not null)
-            filtered = filtered.Where(item => item.Tenant == forcedTenant);
+        {
+            // 租户能看到台账行，以及自己名下命名空间中的观测行；其余观测行不可见。
+            var ownedNamespaces = (await db.TenantNamespaces.AsNoTracking()
+                    .Where(mapping => mapping.TenantId == forcedTenant)
+                    .Select(mapping => mapping.Namespace)
+                    .ToListAsync(ct))
+                .ToHashSet(StringComparer.Ordinal);
+            filtered = filtered.Where(item =>
+                item.Tenant == forcedTenant &&
+                (item.Id is not null || ownedNamespaces.Contains(item.Namespace)));
+        }
         else if (!string.IsNullOrWhiteSpace(query.Tenant))
         {
             var tenantId = query.Tenant.Trim();
@@ -103,10 +113,11 @@ public sealed class VolumeQueries(VolumeDbContext db)
         var stable = ordered
             .ThenBy(item => item.Namespace, StringComparer.Ordinal)
             .ThenBy(item => item.ClaimName, StringComparer.Ordinal);
-        var items = stable
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .ToArray();
+        // 用 long 计算偏移，避免极大页码下 int 溢出让 Skip 回绕到第一页。
+        var skip = (long)(page - 1) * pageSize;
+        VolumeListItemDto[] items = skip >= totalItems
+            ? []
+            : stable.Skip((int)skip).Take(pageSize).ToArray();
 
         return new VolumeListResponse(items, new PaginationInfoDto(
             page, pageSize, totalItems, totalPages, page < totalPages));
@@ -180,7 +191,7 @@ public sealed class VolumeQueries(VolumeDbContext db)
             Percent(labeled, observed), Percent(registered, observed));
 
         var byTenant = rows
-            .GroupBy(item => item.Tenant ?? "<unlabeled>")
+            .GroupBy(item => item.Tenant ?? "未登记租户")
             .OrderByDescending(group => group.Count())
             .ThenBy(group => group.Key, StringComparer.Ordinal)
             .Select(group => new VolumeDistributionItem(group.Key, group.Count()))
@@ -235,8 +246,10 @@ public sealed class VolumeQueries(VolumeDbContext db)
 
         var knownTenants = tenants.Select(tenant => tenant.Id)
             .ToHashSet(StringComparer.Ordinal);
+        // 仅观测行参与未知租户判定；台账行由漂移检查覆盖。
         foreach (var volume in observations.Where(volume =>
-                     volume.TenantLabel is not null &&
+                     !registeredKeys.Contains((volume.Namespace, volume.ClaimName)) &&
+                     !string.IsNullOrWhiteSpace(volume.TenantLabel) &&
                      !knownTenants.Contains(volume.TenantLabel)))
         {
             violations.Add(new VolumeViolationDto(
@@ -244,8 +257,14 @@ public sealed class VolumeQueries(VolumeDbContext db)
                 $"未知租户标签: {volume.TenantLabel}"));
         }
 
-        var truncated = violations.Count > MaxViolations;
-        var violationPage = violations.Take(MaxViolations).ToArray();
+        // 排序后再截断，保证分页结果确定（同类型按命名空间、卷名升序）。
+        var orderedViolations = violations
+            .OrderBy(violation => violation.Type, StringComparer.Ordinal)
+            .ThenBy(violation => violation.Namespace, StringComparer.Ordinal)
+            .ThenBy(violation => violation.ClaimName, StringComparer.Ordinal)
+            .ToList();
+        var truncated = orderedViolations.Count > MaxViolations;
+        var violationPage = orderedViolations.Take(MaxViolations).ToArray();
 
         // SQLite 无法翻译 DateTimeOffset 排序，先物化再按开始时间倒序取最近一次扫描。
         var lastScan = (await db.ScanRuns.AsNoTracking().ToListAsync(ct))
