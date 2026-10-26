@@ -23,6 +23,19 @@ public static class VolumeAgentEndpoints
                 tenantId, request, $"tenant:{tenantId}", ct));
         });
 
+        group.MapGet("", async (
+            [AsParameters] VolumeListQuery query,
+            HttpContext context,
+            VolumeQueries queries,
+            CancellationToken ct) =>
+        {
+            var tenantId = context.User.FindFirstValue("tenant");
+            if (tenantId is null)
+                return Results.Unauthorized();
+            query.Tenant = tenantId;
+            return Results.Ok(await queries.ListAsync(query, tenantId, ct));
+        });
+
         group.MapPost("/{namespaceName}/{claimName}/lifecycle", async (
             string namespaceName,
             string claimName,
