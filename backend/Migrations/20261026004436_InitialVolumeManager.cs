@@ -12,35 +12,6 @@ namespace OpenSandbox.Web.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.CreateTable(
-                name: "cluster_volumes",
-                columns: table => new
-                {
-                    Namespace = table.Column<string>(type: "character varying(253)", maxLength: 253, nullable: false),
-                    ClaimName = table.Column<string>(type: "character varying(253)", maxLength: 253, nullable: false),
-                    Uid = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
-                    Phase = table.Column<string>(type: "character varying(32)", maxLength: 32, nullable: false),
-                    StorageClass = table.Column<string>(type: "character varying(253)", maxLength: 253, nullable: true),
-                    RequestedStorage = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
-                    Capacity = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
-                    CreatedAtK8s = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                    DeletionTimestamp = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
-                    Mounted = table.Column<bool>(type: "boolean", nullable: false),
-                    MountedByJson = table.Column<string>(type: "jsonb", nullable: false),
-                    LabelsJson = table.Column<string>(type: "jsonb", nullable: false),
-                    LifecycleLabel = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
-                    TenantLabel = table.Column<string>(type: "character varying(253)", maxLength: 253, nullable: true),
-                    OwnerLabel = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
-                    ContractVersionLabel = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: true),
-                    FirstSeenAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                    LastSeenAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                    LastScanId = table.Column<Guid>(type: "uuid", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_cluster_volumes", x => new { x.Namespace, x.ClaimName });
-                });
-
-            migrationBuilder.CreateTable(
                 name: "managed_namespaces",
                 columns: table => new
                 {
@@ -65,7 +36,7 @@ namespace OpenSandbox.Web.Migrations
                     NamespacesScanned = table.Column<int>(type: "integer", nullable: false),
                     NamespacesSucceeded = table.Column<int>(type: "integer", nullable: false),
                     VolumeCount = table.Column<int>(type: "integer", nullable: false),
-                    ErrorsJson = table.Column<string>(type: "jsonb", nullable: false)
+                    Errors = table.Column<string>(type: "jsonb", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -97,14 +68,49 @@ namespace OpenSandbox.Web.Migrations
                     ClaimName = table.Column<string>(type: "character varying(253)", maxLength: 253, nullable: false),
                     TenantId = table.Column<string>(type: "character varying(63)", maxLength: 63, nullable: true),
                     Type = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
-                    Actor = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
-                    Reason = table.Column<string>(type: "character varying(512)", maxLength: 512, nullable: true),
-                    DataJson = table.Column<string>(type: "jsonb", nullable: false),
+                    Actor = table.Column<string>(type: "text", nullable: false),
+                    Reason = table.Column<string>(type: "text", nullable: true),
+                    Data = table.Column<string>(type: "jsonb", nullable: false),
                     CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_volume_events", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "cluster_volumes",
+                columns: table => new
+                {
+                    Namespace = table.Column<string>(type: "character varying(253)", maxLength: 253, nullable: false),
+                    ClaimName = table.Column<string>(type: "character varying(253)", maxLength: 253, nullable: false),
+                    Uid = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
+                    Phase = table.Column<string>(type: "character varying(32)", maxLength: 32, nullable: false),
+                    StorageClass = table.Column<string>(type: "character varying(253)", maxLength: 253, nullable: true),
+                    RequestedStorage = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
+                    Capacity = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
+                    CreatedAtK8s = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    DeletionTimestamp = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
+                    Mounted = table.Column<bool>(type: "boolean", nullable: false),
+                    MountedBy = table.Column<string>(type: "jsonb", nullable: false),
+                    Labels = table.Column<string>(type: "jsonb", nullable: false),
+                    LifecycleLabel = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
+                    TenantLabel = table.Column<string>(type: "character varying(253)", maxLength: 253, nullable: true),
+                    OwnerLabel = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
+                    ContractVersionLabel = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: true),
+                    FirstSeenAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    LastSeenAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    LastScanId = table.Column<Guid>(type: "uuid", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_cluster_volumes", x => new { x.Namespace, x.ClaimName });
+                    table.ForeignKey(
+                        name: "FK_cluster_volumes_scan_runs_LastScanId",
+                        column: x => x.LastScanId,
+                        principalTable: "scan_runs",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateTable(
@@ -169,7 +175,7 @@ namespace OpenSandbox.Web.Migrations
                     StateReason = table.Column<string>(type: "character varying(32)", maxLength: 32, nullable: true),
                     MissingSince = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
                     LabelState = table.Column<string>(type: "character varying(16)", maxLength: 16, nullable: false),
-                    ViolationsJson = table.Column<string>(type: "jsonb", nullable: false),
+                    Violations = table.Column<string>(type: "jsonb", nullable: false),
                     RegisteredAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     UpdatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     LastSeenAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true)
@@ -258,9 +264,6 @@ namespace OpenSandbox.Web.Migrations
                 name: "managed_namespaces");
 
             migrationBuilder.DropTable(
-                name: "scan_runs");
-
-            migrationBuilder.DropTable(
                 name: "tenant_api_keys");
 
             migrationBuilder.DropTable(
@@ -271,6 +274,9 @@ namespace OpenSandbox.Web.Migrations
 
             migrationBuilder.DropTable(
                 name: "volumes");
+
+            migrationBuilder.DropTable(
+                name: "scan_runs");
 
             migrationBuilder.DropTable(
                 name: "tenants");

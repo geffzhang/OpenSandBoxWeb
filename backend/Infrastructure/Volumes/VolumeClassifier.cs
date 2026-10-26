@@ -26,8 +26,8 @@ public static class VolumeClassifier
     public static string ToApiValue(VolumeKind kind) => kind switch
     {
         VolumeKind.Unlabeled => "unlabeled",
-        VolumeKind.Ephemeral => "ephemeral",
-        VolumeKind.Business => "business",
-        _ => "business",
+        VolumeKind.Ephemeral => VolumeLifecycle.Ephemeral,
+        VolumeKind.Business => VolumeLifecycle.Business,
+        _ => VolumeLifecycle.Business,
     };
 }

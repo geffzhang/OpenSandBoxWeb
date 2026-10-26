@@ -12,7 +12,7 @@ using OpenSandbox.Web.Infrastructure.Volumes.Persistence;
 namespace OpenSandbox.Web.Migrations
 {
     [DbContext(typeof(VolumeDbContext))]
-    [Migration("20261026000546_InitialVolumeManager")]
+    [Migration("20261026004436_InitialVolumeManager")]
     partial class InitialVolumeManager
     {
         /// <inheritdoc />
@@ -54,7 +54,8 @@ namespace OpenSandbox.Web.Migrations
 
                     b.Property<string>("LabelsJson")
                         .IsRequired()
-                        .HasColumnType("jsonb");
+                        .HasColumnType("jsonb")
+                        .HasColumnName("Labels");
 
                     b.Property<Guid>("LastScanId")
                         .HasColumnType("uuid");
@@ -71,7 +72,8 @@ namespace OpenSandbox.Web.Migrations
 
                     b.Property<string>("MountedByJson")
                         .IsRequired()
-                        .HasColumnType("jsonb");
+                        .HasColumnType("jsonb")
+                        .HasColumnName("MountedBy");
 
                     b.Property<string>("OwnerLabel")
                         .HasMaxLength(64)
@@ -138,7 +140,8 @@ namespace OpenSandbox.Web.Migrations
 
                     b.Property<string>("ErrorsJson")
                         .IsRequired()
-                        .HasColumnType("jsonb");
+                        .HasColumnType("jsonb")
+                        .HasColumnName("Errors");
 
                     b.Property<DateTimeOffset?>("FinishedAt")
                         .HasColumnType("timestamp with time zone");
@@ -337,7 +340,8 @@ namespace OpenSandbox.Web.Migrations
 
                     b.Property<string>("ViolationsJson")
                         .IsRequired()
-                        .HasColumnType("jsonb");
+                        .HasColumnType("jsonb")
+                        .HasColumnName("Violations");
 
                     b.HasKey("Id");
 
@@ -361,8 +365,7 @@ namespace OpenSandbox.Web.Migrations
 
                     b.Property<string>("Actor")
                         .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
+                        .HasColumnType("text");
 
                     b.Property<string>("ClaimName")
                         .IsRequired()
@@ -374,7 +377,8 @@ namespace OpenSandbox.Web.Migrations
 
                     b.Property<string>("DataJson")
                         .IsRequired()
-                        .HasColumnType("jsonb");
+                        .HasColumnType("jsonb")
+                        .HasColumnName("Data");
 
                     b.Property<string>("Namespace")
                         .IsRequired()
@@ -382,8 +386,7 @@ namespace OpenSandbox.Web.Migrations
                         .HasColumnType("character varying(253)");
 
                     b.Property<string>("Reason")
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)");
+                        .HasColumnType("text");
 
                     b.Property<string>("TenantId")
                         .HasMaxLength(63)
@@ -404,6 +407,15 @@ namespace OpenSandbox.Web.Migrations
                     b.HasIndex("Namespace", "ClaimName", "CreatedAt");
 
                     b.ToTable("volume_events", (string)null);
+                });
+
+            modelBuilder.Entity("OpenSandbox.Web.Infrastructure.Volumes.Persistence.ClusterVolumeEntity", b =>
+                {
+                    b.HasOne("OpenSandbox.Web.Infrastructure.Volumes.Persistence.ScanRunEntity", null)
+                        .WithMany()
+                        .HasForeignKey("LastScanId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("OpenSandbox.Web.Infrastructure.Volumes.Persistence.TenantApiKeyEntity", b =>

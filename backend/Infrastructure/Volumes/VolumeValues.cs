@@ -5,7 +5,7 @@ public static class VolumeLifecycle
     public const string Business = "business";
     public const string Ephemeral = "ephemeral";
 
-    public static bool IsValid(string? value) => value is Business or Ephemeral;
+    public static bool IsValid(string? value) => value?.Trim() is Business or Ephemeral;
 }
 
 public static class VolumeLabelStates

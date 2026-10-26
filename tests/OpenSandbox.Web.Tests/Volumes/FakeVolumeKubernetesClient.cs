@@ -13,6 +13,8 @@ public sealed class FakeVolumeKubernetesClient : IVolumeKubernetesClient
     public HashSet<string> FailLabelPatches { get; } = new(StringComparer.Ordinal);
     public List<(string Namespace, string ClaimName, IReadOnlyDictionary<string, string> Labels)> Patches { get; } = [];
     public Exception? ListNamespacesException { get; set; }
+    public TaskCompletionSource? ListNamespacesStarted { get; set; }
+    public TaskCompletionSource? ListNamespacesGate { get; set; }
 
     public static FakeVolumeKubernetesClient WithManagedNamespace(string name = "opensandbox")
     {
@@ -41,14 +43,17 @@ public sealed class FakeVolumeKubernetesClient : IVolumeKubernetesClient
             labels ?? new Dictionary<string, string>()));
     }
 
-    public Task<IReadOnlyList<ManagedNamespaceInfo>> ListManagedNamespacesAsync(CancellationToken ct)
+    public async Task<IReadOnlyList<ManagedNamespaceInfo>> ListManagedNamespacesAsync(CancellationToken ct)
     {
         if (ListNamespacesException is not null) throw ListNamespacesException;
+        ListNamespacesStarted?.TrySetResult();
+        if (ListNamespacesGate is not null)
+            await ListNamespacesGate.Task.WaitAsync(ct);
         IReadOnlyList<ManagedNamespaceInfo> result = Namespaces.Values
             .Where(ns => ns.Labels.TryGetValue(VolumeLabels.Managed, out var value) && value == "true")
             .Select(ns => new ManagedNamespaceInfo(ns.Name, ns.Labels))
             .ToArray();
-        return Task.FromResult(result);
+        return result;
     }
 
     public Task<NamespaceInfo?> GetNamespaceAsync(string name, CancellationToken ct)
@@ -60,13 +65,15 @@ public sealed class FakeVolumeKubernetesClient : IVolumeKubernetesClient
     public Task<IReadOnlyList<ObservedPvc>> ListPvcsAsync(string ns, CancellationToken ct)
     {
         if (FailPvcLists.Contains(ns)) throw new InvalidOperationException("pvc list failed");
-        return Task.FromResult((IReadOnlyList<ObservedPvc>)Pvcs.GetValueOrDefault(ns) ?? []);
+        IReadOnlyList<ObservedPvc> pvcs = Pvcs.GetValueOrDefault(ns) ?? [];
+        return Task.FromResult(pvcs);
     }
 
     public Task<IReadOnlyList<PodMount>> ListPodMountsAsync(string ns, CancellationToken ct)
     {
         if (FailPodLists.Contains(ns)) throw new InvalidOperationException("pod list failed");
-        return Task.FromResult((IReadOnlyList<PodMount>)Pods.GetValueOrDefault(ns) ?? []);
+        IReadOnlyList<PodMount> pods = Pods.GetValueOrDefault(ns) ?? [];
+        return Task.FromResult(pods);
     }
 
     public Task PatchPvcLabelsAsync(
