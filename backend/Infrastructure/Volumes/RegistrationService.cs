@@ -125,7 +125,8 @@ public sealed class RegistrationService(
             {
                 await AddConflictAsync(byClaim, actor, now, "卷已被其他租户或 owner 注册", ct);
                 results.Add(new VolumeRegistrationResult(
-                    claimName, RegistrationStatuses.Conflict, byClaim.Id,
+                    claimName, RegistrationStatuses.Conflict,
+                    byClaim.TenantId == tenantId ? byClaim.Id : null,
                     "卷已被其他租户或 owner 注册"));
                 continue;
             }
@@ -145,7 +146,10 @@ public sealed class RegistrationService(
 
             if (byClaim is not null)
             {
-                if (byClaim.Lifecycle != lifecycle)
+                // 缺失/失去受管的台账行允许通过注册请求恢复，并应用请求的 lifecycle。
+                var reactivated =
+                    byClaim.State is VolumeStates.Missing or VolumeStates.Unmanaged;
+                if (!reactivated && byClaim.Lifecycle != lifecycle)
                 {
                     await AddConflictAsync(byClaim, actor, now, "lifecycle 与已有台账不一致", ct);
                     results.Add(new VolumeRegistrationResult(
@@ -154,8 +158,8 @@ public sealed class RegistrationService(
                     continue;
                 }
 
-                var reactivated =
-                    byClaim.State is VolumeStates.Missing or VolumeStates.Unmanaged;
+                var lifecycleChanged = byClaim.Lifecycle != lifecycle;
+                byClaim.Lifecycle = lifecycle;
                 byClaim.Role = VolumeValidation.Text(item.Role, VolumeValidation.RoleMax);
                 byClaim.MountPath = VolumeValidation.Text(item.MountPath, VolumeValidation.MountPathMax);
                 byClaim.LastSandboxId = VolumeValidation.Text(item.SandboxId, VolumeValidation.SandboxIdMax);
@@ -169,6 +173,8 @@ public sealed class RegistrationService(
                 AddEvent(byClaim,
                     reactivated ? VolumeEventTypes.Reactivated : VolumeEventTypes.Updated,
                     actor, now);
+                if (reactivated && lifecycleChanged)
+                    AddEvent(byClaim, VolumeEventTypes.LifecycleChanged, actor, now, "reactivation");
                 toPatch.Add(byClaim);
                 results.Add(new VolumeRegistrationResult(
                     claimName,

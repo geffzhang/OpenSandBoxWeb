@@ -254,7 +254,7 @@ public sealed class VolumeQueries(VolumeDbContext db)
                      !knownTenants.Contains(volume.TenantLabel)))
         {
             violations.Add(new VolumeViolationDto(
-                "unknown-tenant", volume.Namespace, volume.ClaimName,
+                $"unknown-tenant:{volume.TenantLabel}", volume.Namespace, volume.ClaimName,
                 $"未知租户标签: {volume.TenantLabel}"));
         }
 
@@ -289,6 +289,7 @@ public sealed class VolumeQueries(VolumeDbContext db)
             .ToDictionary(volume => (volume.Namespace, volume.ClaimName));
         var tenants = (await db.Tenants.AsNoTracking().ToListAsync(ct))
             .ToDictionary(tenant => tenant.Id, tenant => tenant.DisplayName);
+        var knownTenants = tenants.Keys.ToHashSet(StringComparer.Ordinal);
         var ledgerKeys = ledger
             .Select(volume => (volume.Namespace, volume.ClaimName))
             .ToHashSet();
@@ -305,7 +306,11 @@ public sealed class VolumeQueries(VolumeDbContext db)
         foreach (var observation in observations.Values.Where(volume =>
                      !ledgerKeys.Contains((volume.Namespace, volume.ClaimName))))
         {
-            rows.Add(ToListItem(null, observation, null));
+            var item = ToListItem(null, observation, null);
+            if (!string.IsNullOrWhiteSpace(observation.TenantLabel) &&
+                !knownTenants.Contains(observation.TenantLabel))
+                item = item with { Violations = [.. item.Violations, $"unknown-tenant:{observation.TenantLabel}"] };
+            rows.Add(item);
         }
 
         return rows;

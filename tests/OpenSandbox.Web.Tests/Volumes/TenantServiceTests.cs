@@ -141,4 +141,65 @@ public sealed class TenantServiceTests
         await Assert.ThrowsAsync<VolumeNotFoundException>(() =>
             service.RevokeKeyAsync("other", created.Id, CancellationToken.None));
     }
+
+    [Fact]
+    public async Task List_ReturnsVolumeAndKeyStatistics()
+    {
+        using var test = new TestDb();
+        test.Db.TenantNamespaces.Add(new TenantNamespaceEntity
+        {
+            Namespace = "ns-a",
+            TenantId = "goodcrew",
+        });
+        test.Db.Volumes.AddRange(
+            Volume("pvc-1", "goodcrew", VolumeLifecycle.Business, VolumeStates.Active),
+            Volume("pvc-2", "goodcrew", VolumeLifecycle.Business, VolumeStates.Missing),
+            Volume("pvc-3", "goodcrew", VolumeLifecycle.Ephemeral, VolumeStates.Active),
+            Volume("pvc-4", "other", VolumeLifecycle.Business, VolumeStates.Active));
+        test.Db.TenantApiKeys.AddRange(
+            Key("goodcrew", [1, 2, 3], revokedAt: null),
+            Key("goodcrew", [4, 5, 6], revokedAt: Now),
+            Key("other", [7, 8, 9], revokedAt: null));
+        await test.Db.SaveChangesAsync();
+
+        var items = await Service(test).ListAsync(CancellationToken.None);
+
+        var goodcrew = Assert.Single(items, tenant => tenant.Id == "goodcrew");
+        Assert.Equal(["ns-a"], goodcrew.Namespaces);
+        Assert.Equal(3, goodcrew.VolumeCount);
+        Assert.Equal(2, goodcrew.ProtectedCount);
+        Assert.Equal(1, goodcrew.EphemeralCount);
+        Assert.Equal(1, goodcrew.MissingCount);
+        Assert.Equal(1, goodcrew.KeyCount);
+        var other = Assert.Single(items, tenant => tenant.Id == "other");
+        Assert.Equal(1, other.VolumeCount);
+        Assert.Equal(1, other.KeyCount);
+    }
+
+    private static VolumeEntity Volume(
+        string claimName, string tenantId, string lifecycle, string state) => new()
+    {
+        Id = Guid.CreateVersion7(),
+        Namespace = "ns-a",
+        ClaimName = claimName,
+        TenantId = tenantId,
+        OwnerKind = "employee",
+        OwnerId = claimName,
+        Lifecycle = lifecycle,
+        State = state,
+        RegisteredAt = Now,
+        UpdatedAt = Now,
+    };
+
+    private static TenantApiKeyEntity Key(
+        string tenantId, byte[] hash, DateTimeOffset? revokedAt) => new()
+    {
+        Id = Guid.CreateVersion7(),
+        TenantId = tenantId,
+        Name = "key",
+        KeyHash = hash,
+        Prefix = "prefix00",
+        CreatedAt = Now,
+        RevokedAt = revokedAt,
+    };
 }

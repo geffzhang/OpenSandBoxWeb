@@ -64,6 +64,38 @@ public sealed class VolumeManagerRegistrationTests
         Assert.False(options.MigrateOnStartup);
     }
 
+    [Fact]
+    public void ConcreteOptionsSingleton_ComesFromValidatedOptions()
+    {
+        using var provider = BuildProvider(new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:VolumeManager"] = "Host=unused;Database=unused",
+            ["VolumeManager:Enabled"] = "false",
+        });
+
+        var concrete = provider.GetRequiredService<VolumeManagerOptions>();
+        var validated = provider.GetRequiredService<IOptions<VolumeManagerOptions>>().Value;
+
+        Assert.Same(validated, concrete);
+    }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public async Task MigrateVolumeManager_EarlyReturn_DoesNotRequireVolumeDbContext(
+        bool enabled, bool migrateOnStartup)
+    {
+        var services = new ServiceCollection();
+        services.AddOptions<VolumeManagerOptions>().Configure(options =>
+        {
+            options.Enabled = enabled;
+            options.MigrateOnStartup = migrateOnStartup;
+        });
+        await using var provider = services.BuildServiceProvider();
+
+        await provider.MigrateVolumeManagerAsync();
+    }
+
     private static ServiceProvider BuildProvider(Dictionary<string, string?> values)
     {
         var configuration = new ConfigurationBuilder()

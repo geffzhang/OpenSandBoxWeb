@@ -287,6 +287,97 @@ public sealed class ImportServiceTests
     }
 
     [Fact]
+    public async Task Import_WriteMode_MissingVolume_AppliesRequestedLifecycle()
+    {
+        var (test, kube) = await SeedAsync();
+        using var _ = test;
+        test.Db.Volumes.Add(new VolumeEntity
+        {
+            Id = Guid.CreateVersion7(), Namespace = "opensandbox", ClaimName = "pvc-1",
+            TenantId = "goodcrew", OwnerKind = "employee", OwnerId = "3f2a",
+            Lifecycle = VolumeLifecycle.Business, RegisteredUid = "uid-old",
+            State = VolumeStates.Missing, StateReason = VolumeStates.Unexpected,
+            LabelState = VolumeLabelStates.Applied,
+            RegisteredAt = Now.AddDays(-10), UpdatedAt = Now.AddDays(-2),
+        });
+        await test.Db.SaveChangesAsync();
+
+        var response = await Service(test, kube).ImportAsync(
+            new VolumeImportRequest(false,
+            [
+                new VolumeImportItem(
+                    "goodcrew", "opensandbox", "pvc-1", "employee", "3f2a",
+                    "meta", "/workspace", "ephemeral", "sb-1"),
+            ]),
+            CancellationToken.None);
+
+        Assert.Equal(RegistrationStatuses.Reactivated, response.Results[0].Status);
+        var volume = await test.Db.Volumes.SingleAsync();
+        Assert.Equal(VolumeStates.Active, volume.State);
+        Assert.Equal(VolumeLifecycle.Ephemeral, volume.Lifecycle);
+        Assert.True(await test.Db.VolumeEvents.AnyAsync(
+            e => e.Type == VolumeEventTypes.Imported));
+        var lifecycleEvent = Assert.Single(await test.Db.VolumeEvents
+            .Where(e => e.Type == VolumeEventTypes.LifecycleChanged).ToListAsync());
+        Assert.Equal("reactivation", lifecycleEvent.Reason);
+        Assert.Single(kube.Patches);
+        Assert.Equal(VolumeLifecycle.Ephemeral,
+            kube.Patches[^1].Labels[VolumeLabels.Lifecycle]);
+    }
+
+    [Fact]
+    public async Task Import_DryRun_MissingVolumeWithDifferentLifecycle_ReturnsWouldUpdate()
+    {
+        var (test, kube) = await SeedAsync();
+        using var _ = test;
+        test.Db.Volumes.Add(new VolumeEntity
+        {
+            Id = Guid.CreateVersion7(), Namespace = "opensandbox", ClaimName = "pvc-1",
+            TenantId = "goodcrew", OwnerKind = "employee", OwnerId = "3f2a",
+            Lifecycle = VolumeLifecycle.Business, RegisteredUid = "uid-old",
+            State = VolumeStates.Missing, StateReason = VolumeStates.Unexpected,
+            LabelState = VolumeLabelStates.Applied,
+            RegisteredAt = Now.AddDays(-10), UpdatedAt = Now.AddDays(-2),
+        });
+        await test.Db.SaveChangesAsync();
+
+        var response = await Service(test, kube).ImportAsync(
+            new VolumeImportRequest(true,
+            [
+                new VolumeImportItem(
+                    "goodcrew", "opensandbox", "pvc-1", "employee", "3f2a",
+                    "meta", "/workspace", "ephemeral", "sb-1"),
+            ]),
+            CancellationToken.None);
+
+        Assert.Equal("would-update", response.Results[0].Status);
+        var volume = await test.Db.Volumes.SingleAsync();
+        Assert.Equal(VolumeStates.Missing, volume.State);
+        Assert.Equal(VolumeLifecycle.Business, volume.Lifecycle);
+        Assert.Empty(kube.Patches);
+    }
+
+    [Fact]
+    public async Task Import_WriteMode_ActiveLifecycleMismatch_ReturnsConflict()
+    {
+        var (test, kube) = await SeedAsync();
+        using var _ = test;
+        await Service(test, kube).ImportAsync(Request(dryRun: false), CancellationToken.None);
+
+        var response = await Service(test, kube).ImportAsync(
+            new VolumeImportRequest(false,
+            [
+                new VolumeImportItem(
+                    "goodcrew", "opensandbox", "pvc-1", "employee", "3f2a",
+                    "meta", "/workspace", "ephemeral", "sb-1"),
+            ]),
+            CancellationToken.None);
+
+        Assert.Equal(RegistrationStatuses.Conflict, response.Results[0].Status);
+        Assert.Equal(VolumeLifecycle.Business, (await test.Db.Volumes.SingleAsync()).Lifecycle);
+    }
+
+    [Fact]
     public async Task Import_NamespaceLookupFailure_ThrowsDependencyWithoutInternalText()
     {
         var (test, kube) = await SeedAsync();

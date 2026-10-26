@@ -38,6 +38,7 @@ public sealed class TenantApiKeyMiddleware(
         if (identity is null)
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            context.Response.Headers.WWWAuthenticate = "Bearer";
             await context.Response.WriteAsJsonAsync(
                 new ErrorResponse("unauthorized", "缺少或无效的租户 API Key"));
             return;

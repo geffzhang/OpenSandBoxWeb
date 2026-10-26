@@ -19,7 +19,9 @@ public static class VolumeManagerRegistration
             .Validate(options => options.ScanInterval > TimeSpan.Zero, "VolumeManager:ScanInterval 必须大于零")
             .Validate(options => options.MaxConcurrentNamespaces >= 1, "VolumeManager:MaxConcurrentNamespaces 必须至少为 1")
             .ValidateOnStart();
-        services.AddSingleton(bound);
+        // 具体类型单例必须来自已验证的 IOptions，避免绕过校验直接拿到未验证实例。
+        services.AddSingleton(provider =>
+            provider.GetRequiredService<IOptions<VolumeManagerOptions>>().Value);
 
         var connectionString = configuration.GetConnectionString("VolumeManager");
         if (string.IsNullOrWhiteSpace(connectionString))
