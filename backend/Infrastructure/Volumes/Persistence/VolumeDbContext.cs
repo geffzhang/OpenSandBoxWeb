@@ -65,7 +65,7 @@ public sealed class VolumeDbContext(DbContextOptions<VolumeDbContext> options) :
             entity.Property(x => x.State).HasMaxLength(16);
             entity.Property(x => x.StateReason).HasMaxLength(32);
             entity.Property(x => x.LabelState).HasMaxLength(16);
-            entity.Property(x => x.ViolationsJson).HasColumnType(jsonType);
+            entity.Property(x => x.ViolationsJson).HasColumnName("Violations").HasColumnType(jsonType);
             entity.HasIndex(x => new { x.Namespace, x.ClaimName }).IsUnique();
             entity.HasIndex(x => x.TenantId);
             entity.HasIndex(x => x.State);
@@ -85,14 +85,16 @@ public sealed class VolumeDbContext(DbContextOptions<VolumeDbContext> options) :
             entity.Property(x => x.StorageClass).HasMaxLength(253);
             entity.Property(x => x.RequestedStorage).HasMaxLength(64);
             entity.Property(x => x.Capacity).HasMaxLength(64);
-            entity.Property(x => x.MountedByJson).HasColumnType(jsonType);
-            entity.Property(x => x.LabelsJson).HasColumnType(jsonType);
+            entity.Property(x => x.MountedByJson).HasColumnName("MountedBy").HasColumnType(jsonType);
+            entity.Property(x => x.LabelsJson).HasColumnName("Labels").HasColumnType(jsonType);
             entity.Property(x => x.LifecycleLabel).HasMaxLength(64);
             entity.Property(x => x.TenantLabel).HasMaxLength(253);
             entity.Property(x => x.OwnerLabel).HasMaxLength(64);
             entity.Property(x => x.ContractVersionLabel).HasMaxLength(16);
             entity.HasIndex(x => x.Uid);
             entity.HasIndex(x => x.LastScanId);
+            entity.HasOne<ScanRunEntity>().WithMany()
+                .HasForeignKey(x => x.LastScanId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<ManagedNamespaceEntity>(entity =>
@@ -108,7 +110,7 @@ public sealed class VolumeDbContext(DbContextOptions<VolumeDbContext> options) :
             entity.ToTable("scan_runs");
             entity.HasKey(x => x.Id);
             entity.Property(x => x.Trigger).HasMaxLength(16);
-            entity.Property(x => x.ErrorsJson).HasColumnType(jsonType);
+            entity.Property(x => x.ErrorsJson).HasColumnName("Errors").HasColumnType(jsonType);
             entity.HasIndex(x => x.StartedAt);
         });
 
@@ -120,9 +122,7 @@ public sealed class VolumeDbContext(DbContextOptions<VolumeDbContext> options) :
             entity.Property(x => x.ClaimName).HasMaxLength(253);
             entity.Property(x => x.TenantId).HasMaxLength(63);
             entity.Property(x => x.Type).HasMaxLength(64);
-            entity.Property(x => x.Actor).HasMaxLength(64);
-            entity.Property(x => x.Reason).HasMaxLength(512);
-            entity.Property(x => x.DataJson).HasColumnType(jsonType);
+            entity.Property(x => x.DataJson).HasColumnName("Data").HasColumnType(jsonType);
             entity.HasIndex(x => new { x.Namespace, x.ClaimName, x.CreatedAt });
             entity.HasIndex(x => x.VolumeId);
         });

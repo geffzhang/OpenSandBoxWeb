@@ -80,7 +80,7 @@ public sealed class InventoryScanService(
 
         foreach (var row in managed.Values.Where(x =>
                      !discoveredNames.Contains(x.Namespace) &&
-                     x.State == ManagedNamespaceStates.Active))
+                     x.State != ManagedNamespaceStates.Gone))
         {
             NamespaceInfo? namespaceInfo;
             try
@@ -95,55 +95,36 @@ public sealed class InventoryScanService(
 
             if (namespaceInfo is null)
             {
-                var volumes = await db.Volumes
-                    .Where(volume => volume.Namespace == row.Namespace)
-                    .ToListAsync(ct);
-
-                foreach (var volume in volumes)
-                {
-                    volume.State = VolumeStates.Missing;
-                    volume.StateReason = VolumeStates.NamespaceDeleted;
-                    volume.MissingSince ??= now;
-                    volume.UpdatedAt = now;
-                }
-
-                if (volumes.Count > 0)
-                {
-                    db.VolumeEvents.Add(BatchEvent(
-                        row.Namespace,
-                        VolumeEventTypes.NamespaceMassDisappearance,
-                        now,
-                        new { count = volumes.Count, reason = VolumeStates.NamespaceDeleted }));
-                }
-
-                row.State = ManagedNamespaceStates.Gone;
+                await MarkNamespaceDeletedAsync(row, now, ct);
+                continue;
             }
-            else
+
+            if (row.State == ManagedNamespaceStates.Unmanaged)
+                continue;
+
+            var volumes = await db.Volumes
+                .Where(volume => volume.Namespace == row.Namespace &&
+                                 volume.State != VolumeStates.Missing &&
+                                 volume.State != VolumeStates.Unmanaged)
+                .ToListAsync(ct);
+
+            foreach (var volume in volumes)
             {
-                var volumes = await db.Volumes
-                    .Where(volume => volume.Namespace == row.Namespace &&
-                                     volume.State != VolumeStates.Missing &&
-                                     volume.State != VolumeStates.Unmanaged)
-                    .ToListAsync(ct);
-
-                foreach (var volume in volumes)
-                {
-                    volume.State = VolumeStates.Unmanaged;
-                    volume.StateReason = null;
-                    volume.UpdatedAt = now;
-                }
-
-                if (volumes.Count > 0)
-                {
-                    db.VolumeEvents.Add(BatchEvent(
-                        row.Namespace,
-                        VolumeEventTypes.NamespaceUnmanaged,
-                        now,
-                        new { count = volumes.Count }));
-                }
-
-                row.State = ManagedNamespaceStates.Unmanaged;
+                volume.State = VolumeStates.Unmanaged;
+                volume.StateReason = null;
+                volume.UpdatedAt = now;
             }
+
+            if (volumes.Count > 0)
+            {
+                db.VolumeEvents.Add(BatchEvent(
+                    row.Namespace,
+                    VolumeEventTypes.NamespaceUnmanaged,
+                    now,
+                    new { count = volumes.Count }));
+            }
+
+            row.State = ManagedNamespaceStates.Unmanaged;
         }
 
         await db.SaveChangesAsync(ct);
@@ -174,6 +155,40 @@ public sealed class InventoryScanService(
         var volumeCount = await db.ClusterVolumes.CountAsync(ct);
         await FinishAsync(scan, scanned, succeeded, volumeCount, errors, ct);
         return ToSummary(scan);
+    }
+
+    private async Task MarkNamespaceDeletedAsync(
+        ManagedNamespaceEntity row,
+        DateTimeOffset now,
+        CancellationToken ct)
+    {
+        var volumes = await db.Volumes
+            .Where(volume => volume.Namespace == row.Namespace)
+            .ToListAsync(ct);
+
+        foreach (var volume in volumes)
+        {
+            volume.State = VolumeStates.Missing;
+            volume.StateReason = VolumeStates.NamespaceDeleted;
+            volume.MissingSince ??= now;
+            volume.UpdatedAt = now;
+        }
+
+        var observations = await db.ClusterVolumes
+            .Where(observation => observation.Namespace == row.Namespace)
+            .ToListAsync(ct);
+        db.ClusterVolumes.RemoveRange(observations);
+
+        if (volumes.Count > 0)
+        {
+            db.VolumeEvents.Add(BatchEvent(
+                row.Namespace,
+                VolumeEventTypes.NamespaceMassDisappearance,
+                now,
+                new { count = volumes.Count, reason = VolumeStates.NamespaceDeleted }));
+        }
+
+        row.State = ManagedNamespaceStates.Gone;
     }
 
     private async Task<NamespaceFetch> FetchAsync(string namespaceName, CancellationToken ct)
@@ -286,7 +301,7 @@ public sealed class InventoryScanService(
                 volume.LastSeenAt = now;
             if (result.State == VolumeStates.Active)
                 volume.MissingSince = null;
-            else
+            else if (result.State == VolumeStates.Missing)
                 volume.MissingSince ??= now;
 
             if (wasActive && result.State == VolumeStates.Missing)
@@ -294,7 +309,8 @@ public sealed class InventoryScanService(
 
             foreach (var eventType in result.Events)
             {
-                AddVolumeEvent(volume, eventType, "scanner", now, result.StateReason,
+                var actor = eventType == VolumeEventTypes.Reactivated ? "system" : "scanner";
+                AddVolumeEvent(volume, eventType, actor, now, result.StateReason,
                     new { violations = result.Violations });
             }
 

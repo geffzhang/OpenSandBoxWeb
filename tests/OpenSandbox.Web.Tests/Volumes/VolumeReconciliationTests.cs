@@ -213,4 +213,49 @@ public sealed class VolumeReconciliationTests
         Assert.Empty(result.Violations);
         Assert.Contains(VolumeEventTypes.DriftResolved, result.Events);
     }
+
+    [Fact]
+    public void MissingWithNewUid_DoesNotEmitDriftEvents()
+    {
+        var result = VolumeReconciliation.Reconcile(Input(
+            state: VolumeStates.Missing,
+            violations: new HashSet<string> { "tenant-mismatch:someone" },
+            observed: Observed(uid: "uid-2", tenant: "other", owner: "someone-else")));
+
+        Assert.Contains(VolumeEventTypes.ReappearedWithNewUid, result.Events);
+        Assert.DoesNotContain(VolumeEventTypes.DriftDetected, result.Events);
+        Assert.DoesNotContain(VolumeEventTypes.DriftResolved, result.Events);
+    }
+
+    [Fact]
+    public void ScanFailure_PreservesViolations()
+    {
+        var violations = new HashSet<string> { "tenant-mismatch:someone" };
+
+        var result = VolumeReconciliation.Reconcile(Input(
+            violations: violations, scanSucceeded: false));
+
+        Assert.True(result.Violations.SetEquals(violations));
+        Assert.Empty(result.Events);
+    }
+
+    [Fact]
+    public void MissingAbsent_DoesNotReemitDisappearance()
+    {
+        var result = VolumeReconciliation.Reconcile(Input(state: VolumeStates.Missing));
+
+        Assert.Equal(VolumeStates.Missing, result.State);
+        Assert.False(result.ObservedThisScan);
+        Assert.Empty(result.Events);
+    }
+
+    [Fact]
+    public void UnmanagedAbsent_StaysUnchanged()
+    {
+        var result = VolumeReconciliation.Reconcile(Input(state: VolumeStates.Unmanaged));
+
+        Assert.Equal(VolumeStates.Unmanaged, result.State);
+        Assert.False(result.ObservedThisScan);
+        Assert.Empty(result.Events);
+    }
 }

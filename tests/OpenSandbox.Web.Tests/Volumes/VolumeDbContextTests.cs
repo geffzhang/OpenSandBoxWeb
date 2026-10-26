@@ -77,10 +77,82 @@ public sealed class VolumeDbContextTests
     }
 
     [Fact]
+    public void Model_EventTextColumnsHaveNoMaxLength()
+    {
+        using var test = new TestDb();
+        var eventType = test.Db.Model.FindEntityType(typeof(VolumeEventEntity))!;
+
+        Assert.Null(eventType.FindProperty(nameof(VolumeEventEntity.Actor))!.GetMaxLength());
+        Assert.Null(eventType.FindProperty(nameof(VolumeEventEntity.Reason))!.GetMaxLength());
+        Assert.True(eventType.FindProperty(nameof(VolumeEventEntity.Reason))!.IsNullable);
+    }
+
+    [Fact]
+    public void Model_JsonColumnsUseSpecNames()
+    {
+        using var test = new TestDb();
+
+        Assert.Equal("Violations", ColumnName<VolumeEntity>(
+            test, nameof(VolumeEntity.ViolationsJson)));
+        Assert.Equal("MountedBy", ColumnName<ClusterVolumeEntity>(
+            test, nameof(ClusterVolumeEntity.MountedByJson)));
+        Assert.Equal("Labels", ColumnName<ClusterVolumeEntity>(
+            test, nameof(ClusterVolumeEntity.LabelsJson)));
+        Assert.Equal("Errors", ColumnName<ScanRunEntity>(
+            test, nameof(ScanRunEntity.ErrorsJson)));
+        Assert.Equal("Data", ColumnName<VolumeEventEntity>(
+            test, nameof(VolumeEventEntity.DataJson)));
+    }
+
+    [Fact]
+    public void Model_LastScanIdReferencesScanRuns()
+    {
+        using var test = new TestDb();
+        var observationType = test.Db.Model.FindEntityType(typeof(ClusterVolumeEntity))!;
+        var foreignKey = Assert.Single(observationType.GetForeignKeys(),
+            key => key.Properties.Any(property => property.Name == nameof(ClusterVolumeEntity.LastScanId)));
+
+        Assert.Equal(typeof(ScanRunEntity), foreignKey.PrincipalEntityType.ClrType);
+        Assert.Equal(DeleteBehavior.Restrict, foreignKey.DeleteBehavior);
+    }
+
+    [Fact]
+    public async Task EventActor_SeventyCharacters_RoundTrips()
+    {
+        using var test = new TestDb();
+        var actor = "tenant:" + new string('a', 63);
+        Assert.Equal(70, actor.Length);
+        test.Db.VolumeEvents.Add(new VolumeEventEntity
+        {
+            Id = Guid.CreateVersion7(),
+            Namespace = "opensandbox",
+            ClaimName = "pvc-1",
+            Type = VolumeEventTypes.Registered,
+            Actor = actor,
+            CreatedAt = Now,
+        });
+        await test.Db.SaveChangesAsync();
+
+        test.Db.ChangeTracker.Clear();
+        Assert.Equal(actor, (await test.Db.VolumeEvents.SingleAsync()).Actor);
+    }
+
+    private static string? ColumnName<TEntity>(TestDb test, string propertyName) =>
+        test.Db.Model.FindEntityType(typeof(TEntity))!.FindProperty(propertyName)!.GetColumnName();
+
+    [Fact]
     public async Task LedgerRows_AreNotDeletedByObservationCleanup()
     {
         using var test = new TestDb();
         test.Db.Volumes.Add(Volume());
+        var run = new ScanRunEntity
+        {
+            Id = Guid.CreateVersion7(),
+            Trigger = "seed",
+            StartedAt = Now,
+            FinishedAt = Now,
+        };
+        test.Db.ScanRuns.Add(run);
         test.Db.ClusterVolumes.Add(new ClusterVolumeEntity
         {
             Namespace = "opensandbox",
@@ -90,7 +162,7 @@ public sealed class VolumeDbContextTests
             CreatedAtK8s = Now,
             FirstSeenAt = Now,
             LastSeenAt = Now,
-            LastScanId = Guid.CreateVersion7(),
+            LastScanId = run.Id,
         });
         await test.Db.SaveChangesAsync();
 
