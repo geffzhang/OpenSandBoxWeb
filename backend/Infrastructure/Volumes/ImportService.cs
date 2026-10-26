@@ -160,10 +160,13 @@ public sealed class ImportService(
 
             if (byClaim is not null)
             {
+                // 与注册 API 同构：缺失/失去受管的台账行允许恢复并应用请求的 lifecycle。
+                var reactivated =
+                    byClaim.State is VolumeStates.Missing or VolumeStates.Unmanaged;
                 if (byClaim.TenantId != tenant.Id ||
                     byClaim.OwnerKind != ownerKind ||
                     byClaim.OwnerId != ownerId ||
-                    byClaim.Lifecycle != lifecycle)
+                    (!reactivated && byClaim.Lifecycle != lifecycle))
                 {
                     results.Add(new VolumeImportResult(
                         namespaceName, claimName, RegistrationStatuses.Conflict, "与已有台账冲突"));
@@ -177,9 +180,8 @@ public sealed class ImportService(
                     continue;
                 }
 
-                // 与注册 API 同构：缺失/失去受管的台账行在写入模式下恢复为 active。
-                var reactivated =
-                    byClaim.State is VolumeStates.Missing or VolumeStates.Unmanaged;
+                var lifecycleChanged = byClaim.Lifecycle != lifecycle;
+                byClaim.Lifecycle = lifecycle;
                 byClaim.Role = VolumeValidation.Text(item.Role, VolumeValidation.RoleMax);
                 byClaim.MountPath = VolumeValidation.Text(item.MountPath, VolumeValidation.MountPathMax);
                 byClaim.LastSandboxId = VolumeValidation.Text(item.SandboxId, VolumeValidation.SandboxIdMax);
@@ -191,6 +193,8 @@ public sealed class ImportService(
                 byClaim.LabelState = VolumeLabelStates.Pending;
                 byClaim.UpdatedAt = now;
                 AddEvent(byClaim, VolumeEventTypes.Imported, now);
+                if (reactivated && lifecycleChanged)
+                    AddEvent(byClaim, VolumeEventTypes.LifecycleChanged, now, "reactivation");
                 results.Add(new VolumeImportResult(
                     namespaceName, claimName,
                     reactivated ? RegistrationStatuses.Reactivated : RegistrationStatuses.Updated,

@@ -91,7 +91,7 @@ public sealed class RegistrationServiceTests
     }
 
     [Fact]
-    public async Task Register_ClaimOwnedByOtherTenant_ReturnsConflict()
+    public async Task Register_ClaimOwnedByOtherTenant_ReturnsConflictWithoutVolumeId()
     {
         using var test = new TestDb();
         await SeedNamespaceAsync(test);
@@ -110,7 +110,9 @@ public sealed class RegistrationServiceTests
         var response = await Service(test, kube).RegisterAsync(
             "goodcrew", Request(), "tenant:goodcrew", CancellationToken.None);
 
-        Assert.Equal(RegistrationStatuses.Conflict, response.Results[0].Status);
+        var result = response.Results[0];
+        Assert.Equal(RegistrationStatuses.Conflict, result.Status);
+        Assert.Null(result.VolumeId);
         Assert.Equal("other", (await test.Db.Volumes.SingleAsync()).TenantId);
         Assert.True(await test.Db.VolumeEvents.AnyAsync(
             e => e.Type == VolumeEventTypes.RegistrationConflict));
@@ -268,5 +270,64 @@ public sealed class RegistrationServiceTests
 
         Assert.Equal(RegistrationStatuses.Reactivated, response.Results[0].Status);
         Assert.Equal(VolumeStates.Active, (await test.Db.Volumes.SingleAsync()).State);
+    }
+
+    [Fact]
+    public async Task Register_ReactivateMissingVolume_AppliesRequestedLifecycle()
+    {
+        using var test = new TestDb();
+        await SeedNamespaceAsync(test);
+        var kube = FakeVolumeKubernetesClient.WithManagedNamespace();
+        kube.AddPvc("opensandbox", "pvc-1", uid: "uid-1");
+        var service = Service(test, kube);
+        await service.RegisterAsync("goodcrew", Request(), "tenant:goodcrew", CancellationToken.None);
+
+        var volume = await test.Db.Volumes.SingleAsync();
+        volume.State = VolumeStates.Missing;
+        volume.StateReason = VolumeStates.Unexpected;
+        await test.Db.SaveChangesAsync();
+
+        var response = await service.RegisterAsync(
+            "goodcrew", Request(lifecycle: "ephemeral"), "tenant:goodcrew", CancellationToken.None);
+
+        Assert.Equal(RegistrationStatuses.Reactivated, response.Results[0].Status);
+        var updated = await test.Db.Volumes.SingleAsync();
+        Assert.Equal(VolumeStates.Active, updated.State);
+        Assert.Equal(VolumeLifecycle.Ephemeral, updated.Lifecycle);
+
+        Assert.True(await test.Db.VolumeEvents.AnyAsync(
+            e => e.Type == VolumeEventTypes.Reactivated));
+        var lifecycleEvent = Assert.Single(await test.Db.VolumeEvents
+            .Where(e => e.Type == VolumeEventTypes.LifecycleChanged).ToListAsync());
+        Assert.Equal("reactivation", lifecycleEvent.Reason);
+
+        Assert.Equal(2, kube.Patches.Count);
+        Assert.Equal(VolumeLifecycle.Ephemeral,
+            kube.Patches[^1].Labels[VolumeLabels.Lifecycle]);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Register_InvalidNamespace_WithNullItem_ReturnsNullItemInvalid(
+        bool namespaceAssigned)
+    {
+        using var test = new TestDb();
+        if (namespaceAssigned)
+            await SeedNamespaceAsync(test);
+        var kube = namespaceAssigned
+            ? new FakeVolumeKubernetesClient()
+            : FakeVolumeKubernetesClient.WithManagedNamespace();
+        kube.Namespaces["opensandbox"] = new NamespaceInfo(
+            "opensandbox", new Dictionary<string, string>());
+
+        var response = await Service(test, kube).RegisterAsync(
+            "goodcrew", new VolumeRegistrationRequest("opensandbox", [null!]),
+            "tenant:goodcrew", CancellationToken.None);
+
+        var result = Assert.Single(response.Results);
+        Assert.Equal(RegistrationStatuses.Invalid, result.Status);
+        Assert.Equal("卷条目为空", result.Message);
+        Assert.Equal(0, await test.Db.Volumes.CountAsync());
     }
 }

@@ -308,11 +308,35 @@ public sealed class VolumeQueriesTests
         var report = await queries.ReportAsync(CancellationToken.None);
 
         var unknown = report.Violations
-            .Where(item => item.Type == "unknown-tenant")
+            .Where(item => item.Type == "unknown-tenant:ghost")
             .ToArray();
         var violation = Assert.Single(unknown);
         Assert.Equal("pvc-2", violation.ClaimName);
         Assert.Equal("未知租户标签: ghost", violation.Message);
+    }
+
+    [Fact]
+    public async Task List_ObservationOnlyUnknownTenant_AppendsViolation()
+    {
+        using var test = new TestDb();
+        var run = SeedScanRun(test);
+        test.Db.Volumes.Add(Ledger());
+        test.Db.ClusterVolumes.AddRange(
+            Observation(run.Id, "pvc-1", tenantLabel: "ghost"),
+            Observation(run.Id, "pvc-2", uid: "uid-2", tenantLabel: "ghost"),
+            Observation(run.Id, "pvc-3", uid: "uid-3", tenantLabel: " "),
+            Observation(run.Id, "pvc-4", uid: "uid-4", tenantLabel: "goodcrew"));
+        await test.Db.SaveChangesAsync();
+        var queries = new VolumeQueries(test.Db);
+
+        var response = await queries.ListAsync(
+            new VolumeListQuery(), null, CancellationToken.None);
+
+        Assert.Equal(["unknown-tenant:ghost"],
+            response.Items.Single(item => item.ClaimName == "pvc-2").Violations);
+        Assert.Empty(response.Items.Single(item => item.ClaimName == "pvc-1").Violations);
+        Assert.Empty(response.Items.Single(item => item.ClaimName == "pvc-3").Violations);
+        Assert.Empty(response.Items.Single(item => item.ClaimName == "pvc-4").Violations);
     }
 
     [Fact]

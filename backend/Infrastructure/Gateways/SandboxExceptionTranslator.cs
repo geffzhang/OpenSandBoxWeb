@@ -14,6 +14,7 @@ public static class SandboxExceptionTranslator
         SandboxInternalException => (StatusCodes.Status500InternalServerError, new ErrorResponse("sandbox_internal", exception.Message)),
         SandboxApiException apiException => TranslateApiException(apiException),
         SandboxException => (StatusCodes.Status502BadGateway, new ErrorResponse("sandbox_error", exception.Message)),
+        BadHttpRequestException badRequest => (badRequest.StatusCode, new ErrorResponse("invalid_argument", "请求参数不合法")),
         _ => (StatusCodes.Status500InternalServerError, new ErrorResponse("internal_error", "An unexpected error occurred.")),
     };
 
