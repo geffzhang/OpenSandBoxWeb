@@ -54,3 +54,14 @@ public static class ManagedNamespaceStates
     public const string Gone = "gone";
     public const string Unmanaged = "unmanaged";
 }
+
+public static class VolumeClassifications
+{
+    public const string Registered = "registered";
+    public const string Unregistered = "unregistered";
+    public const string Unlabeled = "unlabeled";
+    public const string Drift = "drift";
+    public const string Missing = "missing";
+    public const string Reappeared = "reappeared";
+    public const string Unmanaged = "unmanaged";
+}
