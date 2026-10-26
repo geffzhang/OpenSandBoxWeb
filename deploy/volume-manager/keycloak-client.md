@@ -29,9 +29,9 @@ Clients → `opensandbox-web` → Settings：
 
 | 字段 | 值 |
 | --- | --- |
-| Valid redirect URIs | `https://<控制台域名>/*`；开发环境追加 `http://localhost:3000/*` |
-| Valid post logout redirect URIs | `https://<控制台域名>/*`；开发环境追加 `http://localhost:3000/*` |
-| Web origins | 控制台源；开发环境追加 `http://localhost:3000` |
+| Valid redirect URIs | `https://<控制台域名>/*`；开发环境追加 `http://localhost:3000/*` 与 `http://localhost:5080/*` |
+| Valid post logout redirect URIs | `https://<控制台域名>/*`；开发环境追加 `http://localhost:3000/*` 与 `http://localhost:5080/*` |
+| Web origins | 控制台源；开发环境追加 `http://localhost:3000` 与 `http://localhost:5080` |
 
 token 端点是浏览器直连，Web origins / CORS 必须包含控制台源。
 
@@ -81,7 +81,7 @@ token 与 logout 端点。`Auth:Authority` 与 `Auth:ClientId` 缺失时后端�
 ## 7. 验收
 
 1. 无角色用户登录：看到「没有控制台访问权限」。
-2. `sandbox:viewer` 用户登录：落到 `/dashboard`；访问 `/volumes` 显示无权限。
+2. `sandbox:viewer` 用户登录：落到 `/dashboard`；直接访问 `/volumes` 会被重定向回 `/`，最终仍落在 `/dashboard`（而不是显示无权限页）。
 3. `volume:viewer` 用户登录：落到 `/volumes`；不能点「降级」「立即扫描」。
 4. `volume:admin` 用户登录：可以变更 lifecycle、扫描、管理租户与 Key。
 5. 匿名请求 `GET /api/v1/volumes` 返回 401；无 volume 角色的 JWT 返回 403。
