@@ -1,0 +1,39 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: opensandbox-protect-business-volumes
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["DELETE"]
+        resources: ["persistentvolumeclaims"]
+  variables:
+    - name: isProtected
+      expression: >-
+        has(oldObject.metadata.labels) &&
+        'opensandbox.io/volume-lifecycle' in oldObject.metadata.labels &&
+        oldObject.metadata.labels['opensandbox.io/volume-lifecycle'] != 'ephemeral'
+    - name: isApprover
+      expression: >-
+        request.userInfo.groups.exists(g, g == 'opensandbox-volume-approvers')
+  validations:
+    - expression: "!variables.isProtected || variables.isApprover"
+      message: >-
+        该 PVC 被视为业务持久卷（opensandbox.io/volume-lifecycle 存在且不为 ephemeral）。
+        删除需 opensandbox-volume-approvers 组身份，或先由租户通过 VolumeManager API 降级为 ephemeral。
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: opensandbox-protect-business-volumes
+spec:
+  policyName: opensandbox-protect-business-volumes
+  # P2 只观察；P3 将 validationActions 改为 ["Deny"]（见运维手册）。
+  validationActions: ["Warn", "Audit"]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        opensandbox.io/volume-managed: "true"
