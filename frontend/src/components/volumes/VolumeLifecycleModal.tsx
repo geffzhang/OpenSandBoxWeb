@@ -37,8 +37,16 @@ export default function VolumeLifecycleModal({
         reason: target === 'ephemeral' ? reason.trim() : undefined,
       })
     },
-    onSuccess: () => {
-      message.success('生命周期已更新')
+    onSuccess: (response) => {
+      if (response.status === 'label-pending') {
+        message.warning(
+          '台账已更新，但 PVC 标签同步失败，扫描器会自动重试。删除保护以 PVC 标签为准，标签清除前实际状态可能与台账不一致。',
+        )
+      } else if (response.status === 'unchanged') {
+        message.info('生命周期未变化')
+      } else {
+        message.success('生命周期已更新')
+      }
       onSubmitted()
       onClose()
     },

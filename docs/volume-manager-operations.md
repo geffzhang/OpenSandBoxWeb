@@ -35,6 +35,11 @@ Compose 已内置 `postgres:17`，凭据由 `.env` 的 `POSTGRES_PASSWORD` 控�
 ConnectionStrings__VolumeManager="Host=<host>;Port=5432;Database=opensandbox;Username=opensandbox;Password=<secret>"
 ```
 
+Compose 会把 `POSTGRES_PASSWORD` 直接插入上面这个 Npgsql 连接串，因此该密码必须是
+URL/字母数字安全值：仅使用字母、数字、`-`、`_`、`.`、`~`。不要包含 `;`、引号或空白——
+`;` 是 Npgsql 连接串的分隔符，会截断连接串，导致 `opensandbox-web` 在启动迁移时连接
+失败并崩溃重启。
+
 `VolumeManager:Enabled=true` 且 `MigrateOnStartup=true` 时后端启动执行 EF 迁移；生产也可用独立 Job。
 备份与恢复（宿主机，compose 已把 5432 发布到 127.0.0.1；先 `export POSTGRES_PASSWORD=<.env 中的值>`）：
 

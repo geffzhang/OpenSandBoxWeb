@@ -104,8 +104,10 @@ public sealed class VolumeQueries(VolumeDbContext db)
                     ? list.OrderByDescending(item => item.LastSeenAt)
                     : list.OrderBy(item => item.LastSeenAt),
                 "tenant" => descending
-                    ? list.OrderByDescending(item => item.Tenant ?? "", StringComparer.Ordinal)
-                    : list.OrderBy(item => item.Tenant ?? "", StringComparer.Ordinal),
+                    ? list.OrderByDescending(
+                        item => item.TenantName ?? item.Tenant ?? "", StringComparer.Ordinal)
+                    : list.OrderBy(
+                        item => item.TenantName ?? item.Tenant ?? "", StringComparer.Ordinal),
                 _ => descending
                     ? list.OrderByDescending(item => item.Namespace, StringComparer.Ordinal)
                     : list.OrderBy(item => item.Namespace, StringComparer.Ordinal),
